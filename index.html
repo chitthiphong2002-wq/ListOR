@@ -28,14 +28,15 @@
 
     window.allTemplates = [];
     window.currentSteps = [];
+    window.currentNotes = [];
     window.selectedColor = '#2563EB';
     window.editId = null;
     window.isReadOnly = false;
+    window.searchQuery = ""; // สำหรับเก็บคำค้นหา
 
     onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        await signInAnonymously(auth);
-      } else {
+      if (!user) await signInAnonymously(auth);
+      else {
         startSharedListener();
         document.getElementById('appSection').style.display = 'block';
         document.getElementById('loadingOverlay').style.display = 'none';
@@ -50,38 +51,35 @@
       });
     }
 
+    // ฟังก์ชันสำหรับค้นหา
+    window.handleSearch = (val) => {
+      window.searchQuery = val.toLowerCase();
+      window.renderTemplates();
+    };
+
     window.saveTemplate = async () => {
         const name = document.getElementById('inputSurgery').value.trim();
-        const mainNote = document.getElementById('inputMainNote').value.trim();
         if (!name) return alert('กรุณาระบุชื่อหัตถการ');
-        
         const btn = document.getElementById('saveBtn');
         btn.disabled = true;
-
         const data = {
           template_name: name,
-          main_note: mainNote,
+          notes_json: JSON.stringify(window.currentNotes),
           color: window.selectedColor,
           steps_json: JSON.stringify(window.currentSteps),
           updated_at: serverTimestamp()
         };
-
         try {
-            if (window.editId) {
-              await setDoc(doc(db, 'shared_templates', window.editId), data);
-            } else {
-              await addDoc(collection(db, 'shared_templates'), data);
-            }
+            if (window.editId) await setDoc(doc(db, 'shared_templates', window.editId), data);
+            else await addDoc(collection(db, 'shared_templates'), data);
             window.closeModal();
-        } finally {
-            btn.disabled = false;
-        }
+        } finally { btn.disabled = false; }
     };
 
     window.duplicateTemplate = async (e, id) => {
         e.stopPropagation();
-        const source = window.allTemplates.find(t => t.__backendId === id);
-        const newData = { ...source, template_name: source.template_name + " (สำเนา)", updated_at: serverTimestamp() };
+        const src = window.allTemplates.find(t => t.__backendId === id);
+        const newData = { ...src, template_name: src.template_name + " (สำเนา)", updated_at: serverTimestamp() };
         delete newData.__backendId;
         await addDoc(collection(db, 'shared_templates'), newData);
     };
@@ -96,48 +94,34 @@
     :root { --accent: #2563EB; --bg: #F8FAFC; --border: #E2E8F0; }
     body { font-family: 'Inter', 'IBM Plex Sans Thai', sans-serif; background: var(--bg); margin: 0; color: #1E293B; }
     
-    .btn-primary { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-    
+    .btn-primary { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
     .card { background: white; border-radius: 16px; border: 1px solid var(--border); transition: 0.2s; cursor: pointer; position: relative; overflow: hidden; }
     .card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
     
-    /* ปรับปุ่ม Action ให้เล็กลงและแสดงตลอดเวลา */
-    .card-actions { 
-      position: absolute; 
-      top: 12px; 
-      right: 12px; 
-      display: flex; 
-      gap: 4px; 
-      z-index: 10;
-    }
+    .card-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 4px; z-index: 10; }
+    .action-btn { background: rgba(255,255,255,0.8); backdrop-filter: blur(4px); border: 1px solid #E2E8F0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; color: #64748B; }
     
-    .action-btn { 
-      background: rgba(255, 255, 255, 0.8); 
-      backdrop-filter: blur(4px);
-      border: 1px solid #E2E8F0; 
-      width: 28px; 
-      height: 28px; 
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px; 
-      cursor: pointer; 
-      color: #64748B;
-      transition: all 0.2s;
-    }
-    .action-btn:hover { color: var(--accent); border-color: var(--accent); background: white; }
-    .action-btn.delete:hover { color: #EF4444; border-color: #EF4444; }
+    /* Search Bar Styles */
+    .search-wrapper { position: relative; flex: 1; max-width: 400px; margin: 0 15px; }
+    .search-input { width: 100%; background: #F1F5F9; border: 1px solid transparent; padding: 10px 15px 10px 40px; border-radius: 12px; outline: none; font-family: inherit; font-size: 14px; transition: 0.2s; }
+    .search-input:focus { background: white; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+    .search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94A3B8; pointer-events: none; }
 
     .inp { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; outline: none; box-sizing: border-box; }
-    
+    .note-container { margin-bottom: 15px; }
+    .note-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .note-title-inp { border: none; background: transparent; font-size: 12px; font-weight: 700; color: #94A3B8; text-transform: uppercase; outline: none; width: 70%; }
+
     .step-box { background: white; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 10px; border-left: 8px solid #ccc; }
     .step-header { padding: 8px 12px; background: #F8FAFC; display: flex; align-items: center; gap: 10px; }
     .drag-handle { cursor: grab; color: #CBD5E1; }
-
     .color-dot { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 2px solid white; box-shadow: 0 0 0 1px #E2E8F0; }
-    .color-dot.active { box-shadow: 0 0 0 2px #1E293B; }
     
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @media (max-width: 640px) {
+      .search-wrapper { order: 3; max-width: none; margin: 10px 0 0 0; width: 100%; }
+      header .container { flex-wrap: wrap; }
+    }
   </style>
 </head>
 <body>
@@ -148,10 +132,17 @@
 
 <div id="appSection" style="display: none;">
   <header style="background: white; border-bottom: 1px solid var(--border); padding: 12px 24px; position: sticky; top: 0; z-index: 50;">
-    <div style="max-width: 1000px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
+    <div class="container" style="max-width: 1000px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
       <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; color: var(--accent); font-size: 22px;">
-        <i data-lucide="stethoscope"></i> ListsOR
+        <i data-lucide="stethoscope"></i> <span class="hidden sm:inline">ListsOR</span>
       </div>
+      
+      <!-- เพิ่มช่องค้นหาตรงนี้ -->
+      <div class="search-wrapper">
+        <i data-lucide="search" size="18" class="search-icon"></i>
+        <input type="text" class="search-input" placeholder="ค้นหาหัตถการ..." oninput="handleSearch(this.value)">
+      </div>
+
       <button onclick="openCreateModal()" class="btn-primary"><i data-lucide="plus" size="18"></i> สร้างเคส</button>
     </div>
   </header>
@@ -161,34 +152,26 @@
   </main>
 </div>
 
-<!-- Modal -->
+<!-- Modal (เนื้อหาเหมือนเดิม) -->
 <div id="modal" style="display: none; position: fixed; inset: 0; z-index: 100;">
   <div onclick="closeModal()" style="position: absolute; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);"></div>
-  <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; width: 95%; max-width: 500px; border-radius: 24px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+  <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; width: 95%; max-width: 550px; border-radius: 24px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
     <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
       <h2 id="modalTitle" style="margin:0; font-size: 18px; font-weight: 700;">รายละเอียด</h2>
       <button onclick="closeModal()" style="border:none; background:#F1F5F9; border-radius:50%; width:32px; height:32px; cursor:pointer;"><i data-lucide="x" size="18"></i></button>
     </div>
-    
     <div style="padding: 20px; overflow-y: auto; flex: 1;">
-      <label style="font-size: 12px; font-weight: 600; color: #94A3B8;">ชื่อการผ่าตัด</label>
-      <input id="inputSurgery" type="text" class="inp" style="font-weight: 700; margin: 8px 0 16px 0;">
-      
-      <label style="font-size: 12px; font-weight: 600; color: #94A3B8;">NOTE รวม</label>
-      <textarea id="inputMainNote" class="inp" style="height: 60px; margin: 8px 0 20px 0; resize: none; font-family: inherit;"></textarea>
-      
+      <label style="font-size: 11px; font-weight: 700; color: #94A3B8; text-transform: uppercase;">ชื่อการผ่าตัด</label>
+      <input id="inputSurgery" type="text" class="inp" style="font-weight: 700; margin: 6px 0 20px 0;">
+      <div id="notesArea"></div>
+      <button id="addNoteBtn" onclick="addNewNote()" style="margin-bottom: 25px; background: none; border: 1px dashed #CBD5E1; color: #64748B; padding: 8px; border-radius: 10px; width: 100%; cursor: pointer; font-size: 12px; font-weight: 600;">+ เพิ่มช่อง Note</button>
       <div id="colorPickerContainer">
-        <label style="font-size: 12px; font-weight: 600; color: #94A3B8; display: block; margin-bottom: 8px;">สีเทมเพลต</label>
+        <label style="font-size: 11px; font-weight: 700; color: #94A3B8; display: block; margin-bottom: 8px; text-transform: uppercase;">สีเทมเพลต</label>
         <div id="mainColorPicker" style="display: flex; gap: 8px; margin-bottom: 20px;"></div>
       </div>
-
       <div id="stepsContainer"></div>
-      
-      <button id="addStepBtn" onclick="addNewStep()" style="width: 100%; padding: 12px; border: 2px dashed #CBD5E1; border-radius: 12px; background: white; color: var(--accent); cursor: pointer; margin-top: 10px; font-weight: 700;">
-        + เพิ่มขั้นตอน
-      </button>
+      <button id="addStepBtn" onclick="addNewStep()" style="width: 100%; padding: 12px; border: 2px dashed #CBD5E1; border-radius: 12px; background: white; color: var(--accent); cursor: pointer; margin-top: 10px; font-weight: 700;">+ เพิ่มขั้นตอน</button>
     </div>
-
     <div id="modalFooter" style="padding: 15px 20px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 2fr; gap: 10px;"></div>
   </div>
 </div>
@@ -199,25 +182,34 @@
 
   window.renderTemplates = () => {
     const list = document.getElementById('templateList');
-    list.innerHTML = window.allTemplates.map(t => {
-      const steps = JSON.parse(t.steps_json || '[]');
-      return `
+    
+    // กรองข้อมูลตามคำค้นหา
+    const filtered = window.allTemplates.filter(t => 
+      t.template_name.toLowerCase().includes(window.searchQuery || "")
+    );
+
+    if (filtered.length === 0) {
+      list.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #94A3B8;">ไม่พบรายการที่ค้นหา</div>`;
+      return;
+    }
+
+    list.innerHTML = filtered.map(t => `
       <div class="card" onclick="openViewModal('${t.__backendId}')">
         <div style="height: 4px; background: ${t.color}"></div>
         <div style="padding: 16px;">
           <h3 style="margin: 0; font-size: 15px; font-weight: 700; padding-right: 80px; line-height: 1.4;">${t.template_name}</h3>
-          <p style="font-size: 12px; color: #94A3B8; margin-top: 4px;">${steps.length} ขั้นตอน</p>
+          <p style="font-size: 12px; color: #94A3B8; margin-top: 4px;">${JSON.parse(t.steps_json || '[]').length} ขั้นตอน</p>
         </div>
         <div class="card-actions">
-          <button class="action-btn" onclick="openEditModal(event, '${t.__backendId}')" title="แก้ไข"><i data-lucide="settings" size="14"></i></button>
-          <button class="action-btn" onclick="duplicateTemplate(event, '${t.__backendId}')" title="คัดลอก"><i data-lucide="copy" size="14"></i></button>
-          <button class="action-btn delete" onclick="deleteTemplateDirect(event, '${t.__backendId}')" title="ลบ"><i data-lucide="trash-2" size="14"></i></button>
+          <button class="action-btn" onclick="openEditModal(event, '${t.__backendId}')"><i data-lucide="settings" size="14"></i></button>
+          <button class="action-btn" onclick="duplicateTemplate(event, '${t.__backendId}')"><i data-lucide="copy" size="14"></i></button>
+          <button class="action-btn" onclick="deleteTemplateDirect(event, '${t.__backendId}')" style="color:#FCA5A5;"><i data-lucide="trash-2" size="14"></i></button>
         </div>
-      </div>
-    `}).join('');
+      </div>`).join('');
     lucide.createIcons();
   };
 
+  // ... (ฟังก์ชันอื่นๆ เหมือนเดิม)
   window.openViewModal = (id) => { window.isReadOnly = true; setupModal(id); };
   window.openEditModal = (e, id) => { e.stopPropagation(); window.isReadOnly = false; setupModal(id); };
   window.openCreateModal = () => { window.isReadOnly = false; setupModal(null); };
@@ -227,84 +219,74 @@
     window.editId = id;
     window.selectedColor = t ? t.color : COLORS[0];
     window.currentSteps = t ? JSON.parse(t.steps_json) : [];
+    if (t && t.notes_json) window.currentNotes = JSON.parse(t.notes_json);
+    else if (t && t.main_note) window.currentNotes = [{ title: 'NOTE รวม', content: t.main_note }];
+    else window.currentNotes = [{ title: 'NOTE รวม', content: '' }];
     
     document.getElementById('inputSurgery').value = t ? t.template_name : '';
     document.getElementById('inputSurgery').disabled = window.isReadOnly;
-    document.getElementById('inputMainNote').value = t ? (t.main_note || '') : '';
-    document.getElementById('inputMainNote').disabled = window.isReadOnly;
-    
     document.getElementById('modalTitle').textContent = window.isReadOnly ? 'รายละเอียด' : (id ? 'แก้ไขข้อมูล' : 'สร้างใหม่');
     document.getElementById('addStepBtn').style.display = window.isReadOnly ? 'none' : 'block';
+    document.getElementById('addNoteBtn').style.display = window.isReadOnly ? 'none' : 'block';
     document.getElementById('colorPickerContainer').style.display = window.isReadOnly ? 'none' : 'block';
-    
-    renderMainColorPicker();
-    renderStepsList();
-    renderFooter();
+    renderNotes(); renderMainColorPicker(); renderStepsList(); renderFooter();
     document.getElementById('modal').style.display = 'block';
+    initSortable();
+  }
 
+  function renderNotes() {
+    const area = document.getElementById('notesArea');
+    area.innerHTML = window.currentNotes.map((n, i) => `
+      <div class="note-container">
+        <div class="note-header">
+          <input type="text" value="${n.title}" oninput="window.currentNotes[${i}].title=this.value" class="note-title-inp" ${window.isReadOnly ? 'disabled' : ''}>
+          ${(!window.isReadOnly && window.currentNotes.length > 1) ? `<i data-lucide="trash-2" size="12" style="color:#FCA5A5; cursor:pointer;" onclick="removeNote(${i})"></i>` : ''}
+        </div>
+        <textarea oninput="window.currentNotes[${i}].content=this.value" class="inp" style="height: 80px; resize: none; font-family: inherit;" ${window.isReadOnly ? 'disabled' : ''}>${n.content}</textarea>
+      </div>`).join('');
+    lucide.createIcons();
+  }
+
+  window.addNewNote = () => { window.currentNotes.push({ title: 'หัวข้อใหม่', content: '' }); renderNotes(); };
+  window.removeNote = (i) => { window.currentNotes.splice(i, 1); renderNotes(); };
+  function initSortable() {
     const el = document.getElementById('stepsContainer');
     if (sortableInstance) sortableInstance.destroy();
-    sortableInstance = new Sortable(el, {
-      handle: '.drag-handle',
-      animation: 150,
-      disabled: window.isReadOnly,
-      onEnd: (evt) => {
-        const movedItem = window.currentSteps.splice(evt.oldIndex, 1)[0];
-        window.currentSteps.splice(evt.newIndex, 0, movedItem);
+    sortableInstance = new Sortable(el, { handle: '.drag-handle', animation: 150, disabled: window.isReadOnly, onEnd: (evt) => {
+        const item = window.currentSteps.splice(evt.oldIndex, 1)[0];
+        window.currentSteps.splice(evt.newIndex, 0, item);
         renderStepsList();
-      }
-    });
+    }});
   }
-
   function renderMainColorPicker() {
-    const container = document.getElementById('mainColorPicker');
-    container.innerHTML = COLORS.map(c => `
-      <div onclick="if(!window.isReadOnly){ window.selectedColor='${c}'; renderMainColorPicker(); }" 
-           class="color-dot ${window.selectedColor === c ? 'active' : ''}" 
-           style="background:${c}; width: 22px; height: 22px;"></div>
-    `).join('');
+    document.getElementById('mainColorPicker').innerHTML = COLORS.map(c => `
+      <div onclick="if(!window.isReadOnly){ window.selectedColor='${c}'; renderMainColorPicker(); }" class="color-dot ${window.selectedColor === c ? 'active' : ''}" style="background:${c}; width: 22px; height: 22px;"></div>`).join('');
   }
-
   window.renderStepsList = () => {
-    const container = document.getElementById('stepsContainer');
-    container.innerHTML = window.currentSteps.map((s, i) => `
+    document.getElementById('stepsContainer').innerHTML = window.currentSteps.map((s, i) => `
       <div class="step-box" style="border-left-color: ${s.color || '#CBD5E1'}">
         <div class="step-header">
           ${window.isReadOnly ? '' : '<div class="drag-handle"><i data-lucide="grip-vertical" size="14"></i></div>'}
           <span style="font-weight:700; color:#94A3B8; font-size:12px;">${i+1}</span>
-          <input type="text" value="${s.text}" oninput="window.currentSteps[${i}].text=this.value" 
-                 ${window.isReadOnly ? 'disabled' : ''} placeholder="ขั้นตอน..." 
-                 style="flex:1; border:none; background:none; font-size:14px; outline:none; font-weight:600;">
+          <input type="text" value="${s.text}" oninput="window.currentSteps[${i}].text=this.value" ${window.isReadOnly ? 'disabled' : ''} style="flex:1; border:none; background:none; font-size:14px; outline:none; font-weight:600;">
           <div style="display: ${window.isReadOnly ? 'none' : 'flex'}; gap: 4px;">
-            ${['#2563EB', '#16A34A', '#DC2626', '#64748B'].map(c => `
-              <div onclick="updateStepColor(${i}, '${c}')" class="color-dot" style="background:${c}; width:12px; height:12px;"></div>
-            `).join('')}
+            ${['#2563EB', '#16A34A', '#DC2626', '#64748B'].map(c => `<div onclick="updateStepColor(${i}, '${c}')" class="color-dot" style="background:${c}; width:12px; height:12px;"></div>`).join('')}
             <button onclick="removeStep(${i})" style="border:none; background:none; color:#FCA5A5; cursor:pointer;"><i data-lucide="trash-2" size="14"></i></button>
           </div>
         </div>
-        <textarea oninput="window.currentSteps[${i}].note=this.value" 
-                  ${window.isReadOnly ? 'disabled' : ''} placeholder="รายละเอียด..." 
-                  style="width:100%; border:none; padding:10px; font-size:13px; outline:none; resize:none; font-family: inherit;">${s.note}</textarea>
-      </div>
-    `).join('');
+        <textarea oninput="window.currentSteps[${i}].note=this.value" ${window.isReadOnly ? 'disabled' : ''} style="width:100%; border:none; padding:10px; font-size:13px; outline:none; resize:none; font-family: inherit;">${s.note}</textarea>
+      </div>`).join('');
     lucide.createIcons();
   };
-
-  window.addNewStep = () => { 
-    window.currentSteps.push({ text: '', note: '', color: '#CBD5E1' }); 
-    renderStepsList(); 
-  };
-  window.updateStepColor = (i, color) => { window.currentSteps[i].color = color; renderStepsList(); };
+  window.addNewStep = () => { window.currentSteps.push({ text: '', note: '', color: '#CBD5E1' }); renderStepsList(); };
+  window.updateStepColor = (i, c) => { window.currentSteps[i].color = c; renderStepsList(); };
   window.removeStep = (i) => { window.currentSteps.splice(i, 1); renderStepsList(); };
-
   function renderFooter() {
-    const footer = document.getElementById('modalFooter');
-    footer.innerHTML = window.isReadOnly 
-      ? `<button onclick="closeModal()" style="grid-column: span 2; padding:12px; background:#F1F5F9; border:none; border-radius:12px; cursor:pointer; font-weight:600;">ปิด</button>`
-      : `<button onclick="closeModal()" style="padding:12px; background:white; border:1px solid #E2E8F0; border-radius:12px; cursor:pointer; font-weight:600;">ยกเลิก</button>
+    document.getElementById('modalFooter').innerHTML = window.isReadOnly 
+      ? `<button onclick="closeModal()" style="grid-column: span 2; padding:12px; background:#F1F5F9; border:none; border-radius:12px; font-weight:600;">ปิด</button>`
+      : `<button onclick="closeModal()" style="padding:12px; background:white; border:1px solid #E2E8F0; border-radius:12px; font-weight:600;">ยกเลิก</button>
          <button id="saveBtn" onclick="saveTemplate()" class="btn-primary" style="justify-content:center;">บันทึกการแก้ไข</button>`;
   }
-
   window.closeModal = () => document.getElementById('modal').style.display = 'none';
   lucide.createIcons();
 </script>
