@@ -1,410 +1,531 @@
-[ListsOR_firebase.html](https://github.com/user-attachments/files/27147883/ListsOR_firebase.html)
+[index.html](https://github.com/user-attachments/files/27148030/index.html)
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ListsOR</title>
-  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 
   <!-- ===== FIREBASE SDK ===== -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp, query, orderBy }
+    import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, query, orderBy }
       from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
     import { getAuth, signInAnonymously, onAuthStateChanged }
       from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
-    // ===== CONFIG =====
     const firebaseConfig = {
       apiKey: "AIzaSyAZ1RDykpCCRdvu8DDmxYFWILlKUPuxDtg",
       authDomain: "listsor-6049b.firebaseapp.com",
       projectId: "listsor-6049b",
       storageBucket: "listsor-6049b.firebasestorage.app",
       messagingSenderId: "76589470807",
-      appId: "1:76589470807:web:3937ba3148c3eede0dbf12",
-      measurementId: "G-L2007EKB4H"
+      appId: "1:76589470807:web:3937ba3148c3eede0dbf12"
     };
 
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
     const auth = getAuth(app);
 
-    // Expose to window so regular <script> can access
     window._db = db;
-    window._auth = auth;
-    window._fs = { collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp, query, orderBy };
+    window._fs = { collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, query, orderBy };
 
-    // ===== AUTH: Sign in anonymously =====
     onAuthStateChanged(auth, (user) => {
       if (user) {
         window._uid = user.uid;
-        document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-green-400';
-        document.getElementById('statusText').textContent = 'เชื่อมต่อแล้ว';
-        // Start listening to Firestore once authenticated
-        startFirestoreListener();
+        const dot  = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
+        dot.className  = 'w-2 h-2 rounded-full bg-emerald-400';
+        text.textContent = 'เชื่อมต่อแล้ว';
+        startListener();
       } else {
         signInAnonymously(auth).catch(err => {
-          console.error('Auth error:', err);
-          document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-red-400';
-          document.getElementById('statusText').textContent = 'ไม่สามารถเชื่อมต่อได้';
-          showToast('Firebase Auth ล้มเหลว: ' + err.message, '#EF4444');
+          document.getElementById('statusDot').className  = 'w-2 h-2 rounded-full bg-red-400';
+          document.getElementById('statusText').textContent = 'เชื่อมต่อไม่ได้';
+          showToast('Auth error: ' + err.message, 'error');
         });
       }
     });
 
-    function startFirestoreListener() {
+    function startListener() {
       const { collection, query, orderBy, onSnapshot } = window._fs;
-      // Each user has their own subcollection: /users/{uid}/templates
-      const colRef = collection(db, 'users', window._uid, 'templates');
-      const q = query(colRef, orderBy('created_at', 'asc'));
-
-      onSnapshot(q, (snapshot) => {
-        allTemplates = snapshot.docs.map(d => ({ __backendId: d.id, ...d.data() }));
+      const q = query(collection(db, 'users', window._uid, 'templates'), orderBy('created_at','asc'));
+      onSnapshot(q, snap => {
+        allTemplates = snap.docs.map(d => ({ __backendId: d.id, ...d.data() }));
         renderTemplates();
-      }, (err) => {
-        console.error('Firestore error:', err);
-        showToast('Firestore: ' + err.message, '#EF4444');
-      });
+      }, err => showToast('Firestore: ' + err.message, 'error'));
     }
 
-    // ===== FIREBASE dataSdk (replaces localStorage mock) =====
     window.dataSdk = {
       async create(data) {
         try {
-          const { collection, addDoc, serverTimestamp } = window._fs;
-          const colRef = collection(db, 'users', window._uid, 'templates');
-          const toSave = { ...data };
-          delete toSave.__backendId;
-          toSave.created_at = toSave.created_at || new Date().toISOString();
-          toSave.updated_at = new Date().toISOString();
-          await addDoc(colRef, toSave);
+          const { collection, addDoc } = window._fs;
+          const d = { ...data }; delete d.__backendId;
+          d.created_at = d.created_at || new Date().toISOString();
+          d.updated_at = new Date().toISOString();
+          await addDoc(collection(db,'users',window._uid,'templates'), d);
           return { isOk: true };
-        } catch(e) { return { isOk: false, error: e.message }; }
+        } catch(e) { return { isOk:false, error:e.message }; }
       },
-
       async update(data) {
         try {
           const { doc, setDoc } = window._fs;
-          const docRef = doc(db, 'users', window._uid, 'templates', data.__backendId);
-          const toSave = { ...data };
-          delete toSave.__backendId;
-          toSave.updated_at = new Date().toISOString();
-          await setDoc(docRef, toSave);
+          const d = { ...data }; delete d.__backendId;
+          d.updated_at = new Date().toISOString();
+          await setDoc(doc(db,'users',window._uid,'templates',data.__backendId), d);
           return { isOk: true };
-        } catch(e) { return { isOk: false, error: e.message }; }
+        } catch(e) { return { isOk:false, error:e.message }; }
       },
-
       async delete(record) {
         try {
           const { doc, deleteDoc } = window._fs;
-          const docRef = doc(db, 'users', window._uid, 'templates', record.__backendId);
-          await deleteDoc(docRef);
+          await deleteDoc(doc(db,'users',window._uid,'templates',record.__backendId));
           return { isOk: true };
-        } catch(e) { return { isOk: false, error: e.message }; }
+        } catch(e) { return { isOk:false, error:e.message }; }
       }
     };
   </script>
 
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: { display: ['Syne','sans-serif'], mono: ['Space Mono','monospace'] },
-          colors: { neon:'#A855F7', lime:'#BFFF00', sunset:'#FF6B35', cream:'#FFFEF5', ink:'#1a1a1a' }
-        }
-      }
-    }
-  </script>
   <style>
-    html,body{height:100%;margin:0}
-    .neo-border{border:3px solid #1a1a1a}
-    .neo-border-sm{border:2px solid #1a1a1a}
-    .neo-btn{border:3px solid #1a1a1a;transition:all .1s;cursor:pointer}
-    .neo-btn:active{transform:translate(1px,1px)}
-    .drag-over{border-color:#A855F7!important;background:rgba(168,85,247,.1)!important}
-    .dragging{opacity:.5;transform:scale(.95)}
-    .step-item{transition:transform .15s,opacity .15s}
-    @keyframes slideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-    .animate-in{animation:slideIn .3s ease-out forwards}
-    .color-dot{width:28px;height:28px;border-radius:50%;border:2px solid #1a1a1a;cursor:pointer;transition:transform .1s}
-    .color-dot:hover{transform:scale(1.2)}
-    .color-dot.active{outline:3px solid #A855F7;outline-offset:2px}
-    .modal-overlay{background:rgba(0,0,0,.5);backdrop-filter:blur(4px)}
-    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;padding:12px 24px;border:3px solid #1a1a1a;font-family:'Space Mono',monospace;font-weight:700;border-radius:8px;animation:toastIn .3s ease-out,toastOut .3s 2s ease-in forwards}
-    @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
-    @keyframes toastOut{to{opacity:0;transform:translateX(-50%) translateY(20px)}}
-    input:focus,textarea:focus{outline:3px solid #A855F7;outline-offset:1px}
-    .template-card{transition:transform .15s,box-shadow .15s}
-    .template-card:hover{transform:translateY(-4px);box-shadow:6px 6px 0 #1a1a1a}
-    /* Loading skeleton */
-    .skeleton{background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
-    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+    /* ── DESIGN TOKENS ── */
+    :root {
+      --bg:        #F8F9FB;   /* page background: off-white */
+      --surface:   #FFFFFF;   /* card/modal bg */
+      --border:    #D1D5DB;   /* subtle gray border */
+      --border-md: #9CA3AF;   /* medium border */
+      --text:      #111827;   /* near-black */
+      --muted:     #6B7280;   /* gray text */
+      --accent:    #2563EB;   /* blue-600 */
+      --accent-lt: #EFF6FF;   /* blue-50  */
+      --accent-dk: #1D4ED8;   /* blue-700 */
+      --danger:    #DC2626;
+      --danger-lt: #FEF2F2;
+      --success:   #059669;
+      --warn:      #D97706;
+    }
+
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--text); }
+
+    /* ── BORDERS ── */
+    .b1  { border:1px solid var(--border); }
+    .b2  { border:2px solid var(--border-md); }
+    .ba  { border:2px solid var(--accent); }
+
+    /* ── BUTTONS ── */
+    .btn-primary {
+      background:var(--accent); color:#fff; border:none;
+      border-radius:8px; padding:8px 18px; font-weight:600; font-size:14px;
+      cursor:pointer; transition:background .15s, transform .1s;
+      display:inline-flex; align-items:center; gap:6px;
+    }
+    .btn-primary:hover  { background:var(--accent-dk); }
+    .btn-primary:active { transform:scale(.97); }
+
+    .btn-ghost {
+      background:transparent; color:var(--text); border:1.5px solid var(--border);
+      border-radius:8px; padding:8px 18px; font-weight:600; font-size:14px;
+      cursor:pointer; transition:background .15s;
+      display:inline-flex; align-items:center; gap:6px;
+    }
+    .btn-ghost:hover  { background:#F3F4F6; }
+
+    .btn-danger {
+      background:var(--danger); color:#fff; border:none;
+      border-radius:8px; padding:8px 18px; font-weight:600; font-size:14px;
+      cursor:pointer; transition:background .15s;
+    }
+    .btn-danger:hover { background:#B91C1C; }
+
+    .btn-icon {
+      background:transparent; border:none; border-radius:6px; padding:6px;
+      cursor:pointer; color:var(--muted); transition:background .12s, color .12s;
+    }
+    .btn-icon:hover { background:#F3F4F6; color:var(--text); }
+    .btn-icon.danger:hover { background:var(--danger-lt); color:var(--danger); }
+    .btn-icon.blue:hover   { background:var(--accent-lt); color:var(--accent); }
+
+    /* ── CARDS ── */
+    .card {
+      background:var(--surface); border:1.5px solid var(--border);
+      border-radius:12px; overflow:hidden;
+      transition:box-shadow .15s, transform .15s;
+    }
+    .card:hover { box-shadow:0 4px 16px rgba(0,0,0,.09); transform:translateY(-2px); }
+
+    /* ── INPUTS ── */
+    .inp {
+      width:100%; border:1.5px solid var(--border); border-radius:8px;
+      padding:9px 12px; font-size:14px; background:var(--surface);
+      color:var(--text); font-family:inherit; transition:border-color .15s;
+    }
+    .inp:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+
+    /* ── MODAL ── */
+    .overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); backdrop-filter:blur(3px); z-index:40; }
+    .modal-box {
+      position:relative; z-index:50; background:var(--surface);
+      border:1.5px solid var(--border); border-radius:16px; width:100%;
+      max-width:520px; box-shadow:0 20px 60px rgba(0,0,0,.15);
+    }
+    .modal-header {
+      padding:18px 20px; border-bottom:1.5px solid var(--border);
+      background:var(--accent); border-radius:14px 14px 0 0;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .modal-header .btn-icon { color:#fff; }
+    .modal-header .btn-icon:hover { background:rgba(255,255,255,.15); color:#fff; }
+
+    /* ── BADGE ── */
+    .badge {
+      display:inline-flex; align-items:center; gap:4px;
+      padding:2px 10px; border-radius:20px; font-size:12px; font-weight:600;
+      background:var(--accent-lt); color:var(--accent);
+      border:1px solid #BFDBFE;
+    }
+
+    /* ── STATUS PILL ── */
+    .status-pill {
+      display:inline-flex; align-items:center; gap:5px;
+      padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600;
+      border:1px solid var(--border); background:var(--surface);
+      color:var(--muted);
+    }
+
+    /* ── STEP ITEM ── */
+    .step-item { border:1.5px solid var(--border); border-radius:8px; background:var(--surface); overflow:hidden; }
+    .drag-over  { border-color:var(--accent) !important; background:var(--accent-lt) !important; }
+    .dragging   { opacity:.45; transform:scale(.97); }
+
+    /* ── COLOR DOT ── */
+    .color-dot {
+      width:26px; height:26px; border-radius:50%; border:2px solid var(--border);
+      cursor:pointer; transition:transform .1s;
+    }
+    .color-dot:hover  { transform:scale(1.18); }
+    .color-dot.active { outline:3px solid var(--accent); outline-offset:2px; }
+
+    /* ── TOAST ── */
+    .toast {
+      position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+      z-index:9999; padding:11px 22px; border-radius:10px;
+      font-size:13px; font-weight:600; font-family:'IBM Plex Mono',monospace;
+      border:1.5px solid var(--border);
+      animation:toastIn .3s ease-out, toastOut .3s 2.2s ease-in forwards;
+      white-space:nowrap;
+    }
+    .toast.success { background:#ECFDF5; color:#065F46; border-color:#6EE7B7; }
+    .toast.error   { background:#FEF2F2; color:#991B1B; border-color:#FCA5A5; }
+    .toast.info    { background:var(--accent-lt); color:var(--accent-dk); border-color:#BFDBFE; }
+    @keyframes toastIn  { from{opacity:0;transform:translateX(-50%) translateY(16px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    @keyframes toastOut { to{opacity:0;transform:translateX(-50%) translateY(16px)} }
+
+    /* ── SKELETON ── */
+    .skeleton {
+      background:linear-gradient(90deg,#F3F4F6 25%,#E5E7EB 50%,#F3F4F6 75%);
+      background-size:200% 100%; animation:shimmer 1.4s infinite;
+    }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    /* ── SLIDE IN ── */
+    @keyframes slideIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+    .animate-in { animation:slideIn .25s ease-out forwards; }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width:6px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+    /* ── DIVIDER ── */
+    .divider { border:none; border-top:1px solid var(--border); margin:0; }
   </style>
 </head>
-<body class="h-full bg-cream font-mono text-ink overflow-auto">
+<body style="font-family:'Inter',sans-serif;">
 
-<!-- MAIN APP -->
-<div id="app" class="w-full min-h-full flex flex-col">
+<!-- ══════════════════════════════════════
+     MAIN APP
+══════════════════════════════════════ -->
+<div id="app" style="min-height:100vh; display:flex; flex-direction:column;">
 
-  <!-- HEADER -->
-  <header class="w-full px-4 sm:px-8 pt-6 pb-4">
-    <div class="flex items-center justify-between flex-wrap gap-3">
-      <div>
-        <h1 class="font-display font-extrabold text-4xl sm:text-5xl md:text-6xl leading-none"
-          style="background:linear-gradient(135deg,#A855F7,#FF6B35,#BFFF00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
-          ListsOR
-        </h1>
-        <div class="flex items-center gap-2 mt-1">
-          <p class="font-mono text-sm opacity-70">Surgical Template Manager</p>
-          <!-- Firebase status indicator -->
-          <div class="flex items-center gap-1.5 px-2 py-0.5 bg-white neo-border-sm rounded-full text-xs font-bold">
-            <div id="statusDot" class="w-2 h-2 rounded-full bg-yellow-400"></div>
-            <span id="statusText">กำลังเชื่อมต่อ...</span>
-          </div>
+  <!-- NAV / HEADER -->
+  <header style="background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:30;">
+    <div style="max-width:1200px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+
+      <!-- Logo -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:36px;height:36px;background:var(--accent);border-radius:9px;display:flex;align-items:center;justify-content:center;">
+          <i data-lucide="clipboard-list" style="width:20px;height:20px;color:#fff;"></i>
+        </div>
+        <div>
+          <div style="font-size:17px;font-weight:700;letter-spacing:-.3px;">ListsOR</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:500;margin-top:-1px;">Surgical Template Manager</div>
+        </div>
+        <!-- Firebase status -->
+        <div class="status-pill" style="margin-left:4px;">
+          <div id="statusDot" style="width:7px;height:7px;border-radius:50%;background:#F59E0B;"></div>
+          <span id="statusText">กำลังเชื่อมต่อ...</span>
         </div>
       </div>
-      <div class="flex items-center gap-2">
-        <div class="relative">
+
+      <!-- Search + Create -->
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="position:relative;">
+          <i data-lucide="search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted);"></i>
           <input id="searchInput" type="text" placeholder="ค้นหา template..."
-            class="neo-border-sm rounded-lg pl-10 pr-4 py-2 bg-white font-mono text-sm w-48 sm:w-64"
+            class="inp" style="padding-left:32px; width:220px;"
             oninput="handleSearch(this.value)">
-          <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-50"></i>
         </div>
-        <button onclick="openCreateModal()"
-          class="neo-btn bg-lime rounded-lg px-4 py-2 font-display font-bold text-sm flex items-center gap-2">
-          <i data-lucide="plus" class="w-5 h-5"></i>
-          <span class="hidden sm:inline">สร้าง Template</span>
+        <button onclick="openCreateModal()" class="btn-primary">
+          <i data-lucide="plus" style="width:16px;height:16px;"></i>
+          <span>สร้าง Template</span>
         </button>
       </div>
     </div>
   </header>
 
-  <!-- TEMPLATE GRID -->
-  <section class="px-4 sm:px-8 py-4 flex-1">
-    <!-- Loading state -->
-    <div id="loadingState" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div class="neo-border rounded-xl overflow-hidden h-36 skeleton"></div>
-      <div class="neo-border rounded-xl overflow-hidden h-36 skeleton"></div>
-      <div class="neo-border rounded-xl overflow-hidden h-36 skeleton hidden sm:block"></div>
+  <!-- MAIN CONTENT -->
+  <main style="flex:1; max-width:1200px; margin:0 auto; width:100%; padding:28px 24px;">
+
+    <!-- Loading skeletons -->
+    <div id="loadingState" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;">
+      <div class="card skeleton" style="height:130px;"></div>
+      <div class="card skeleton" style="height:130px;"></div>
+      <div class="card skeleton" style="height:130px;"></div>
     </div>
-    <div id="templateList" class="hidden grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-    <div id="emptyState" class="hidden flex-col items-center justify-center py-16 opacity-50">
-      <i data-lucide="clipboard-list" class="w-16 h-16 mb-4"></i>
-      <p class="font-display font-bold text-xl">ยังไม่มี Template</p>
-      <p class="text-sm mt-1">กดปุ่ม "สร้าง Template" เพื่อเริ่มต้น</p>
+
+    <!-- Template grid -->
+    <div id="templateList" style="display:none; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;"></div>
+
+    <!-- Empty state -->
+    <div id="emptyState" style="display:none; flex-direction:column; align-items:center; justify-content:center; padding:80px 0; color:var(--muted);">
+      <div style="width:64px;height:64px;background:var(--accent-lt);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
+        <i data-lucide="clipboard-list" style="width:32px;height:32px;color:var(--accent);"></i>
+      </div>
+      <p style="font-weight:700;font-size:16px;color:var(--text);margin:0 0 6px;">ยังไม่มี Template</p>
+      <p style="font-size:13px;margin:0 0 20px;">กดปุ่ม "สร้าง Template" เพื่อเริ่มต้น</p>
+      <button onclick="openCreateModal()" class="btn-primary">
+        <i data-lucide="plus" style="width:15px;height:15px;"></i> สร้าง Template แรก
+      </button>
     </div>
-  </section>
+  </main>
 </div>
 
-<!-- CREATE/EDIT MODAL -->
-<div id="modal" class="fixed inset-0 z-50 hidden">
-  <div class="modal-overlay absolute inset-0" onclick="closeModal()"></div>
-  <div class="relative z-10 w-full h-full overflow-auto flex items-start justify-center py-8 px-4">
-    <div class="neo-border rounded-2xl bg-cream w-full max-w-lg animate-in">
-      <div class="p-5 border-b-2 border-ink flex items-center justify-between"
-        style="background:linear-gradient(135deg,#A855F7 0%,#FF6B35 100%);border-radius:14px 14px 0 0">
-        <div id="modalTitle" class="font-display font-extrabold text-xl text-white">สร้าง Template ใหม่</div>
-        <button onclick="closeModal()" class="text-white hover:scale-110 transition-transform">
-          <i data-lucide="x" class="w-6 h-6"></i>
-        </button>
+<!-- ══════════════════════════════════════
+     CREATE / EDIT MODAL
+══════════════════════════════════════ -->
+<div id="modal" style="display:none; position:fixed; inset:0; z-index:45; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;">
+  <div class="overlay" onclick="closeModal()" style="position:fixed; inset:0; z-index:44;"></div>
+  <div class="modal-box animate-in" style="z-index:46;">
+
+    <div class="modal-header">
+      <span id="modalTitle" style="font-weight:700; font-size:16px; color:#fff;">สร้าง Template ใหม่</span>
+      <button onclick="closeModal()" class="btn-icon"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+    </div>
+
+    <div style="padding:20px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; max-height:62vh;">
+
+      <div>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">ชื่อการผ่าตัด <span style="color:var(--danger)">*</span></label>
+        <input id="inputSurgery" type="text" placeholder="เช่น Phacoemulsification" class="inp">
       </div>
-      <div class="p-5 space-y-4 overflow-y-auto max-h-[60vh]">
-        <div>
-          <label for="inputSurgery" class="font-display font-bold text-sm block mb-1">ชื่อการผ่าตัด</label>
-          <input id="inputSurgery" type="text" placeholder="เช่น Laparoscopic Cholecystectomy"
-            class="w-full neo-border-sm rounded-lg px-3 py-2 bg-white text-sm">
-        </div>
-        <div>
-          <label for="inputNotes" class="font-display font-bold text-sm block mb-1">หมายเหตุ (Notes)</label>
-          <textarea id="inputNotes" placeholder="เพิ่มข้อมูลเพิ่มเติม..."
-            class="w-full neo-border-sm rounded-lg px-3 py-2 bg-white text-sm h-20 resize-none"></textarea>
-        </div>
-        <div class="space-y-2">
-          <p class="font-display font-bold text-sm">สีของ Template</p>
-          <div id="colorPicker" class="flex flex-wrap gap-2"></div>
-        </div>
-        <div class="space-y-2">
-          <div class="flex items-center justify-between">
-            <p class="font-display font-bold text-sm">ขั้นตอนการผ่าตัด</p>
-            <button onclick="addStep()"
-              class="neo-btn bg-lime rounded-lg px-3 py-1 font-display font-bold text-xs flex items-center gap-1">
-              <i data-lucide="plus" class="w-4 h-4"></i>เพิ่ม
-            </button>
-          </div>
-          <div id="stepsList" class="space-y-2"></div>
-        </div>
+
+      <div>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">หมายเหตุ</label>
+        <textarea id="inputNotes" placeholder="ข้อมูลเพิ่มเติม..." class="inp" style="height:72px;resize:none;"></textarea>
       </div>
-      <div class="p-5 border-t-2 border-ink flex gap-2">
-        <button onclick="closeModal()" class="neo-btn bg-white rounded-lg px-4 py-2 font-display font-bold text-sm flex-1">ยกเลิก</button>
-        <button id="saveBtn" onclick="saveTemplate()" class="neo-btn bg-neon text-white rounded-lg px-4 py-2 font-display font-bold text-sm flex-1">บันทึก</button>
+
+      <div>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;">สีของ Template</label>
+        <div id="colorPicker" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
       </div>
+
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <label style="font-size:13px;font-weight:600;">ขั้นตอนการผ่าตัด</label>
+          <button onclick="addStep()" class="btn-primary" style="padding:5px 12px; font-size:12px;">
+            <i data-lucide="plus" style="width:13px;height:13px;"></i> เพิ่มขั้นตอน
+          </button>
+        </div>
+        <div id="stepsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+    </div>
+
+    <hr class="divider">
+    <div style="padding:16px 20px; display:flex; gap:10px;">
+      <button onclick="closeModal()" class="btn-ghost" style="flex:1; justify-content:center;">ยกเลิก</button>
+      <button id="saveBtn" onclick="saveTemplate()" class="btn-primary" style="flex:1; justify-content:center;">บันทึก</button>
     </div>
   </div>
 </div>
 
-<!-- DELETE CONFIRM MODAL -->
-<div id="deleteModal" class="fixed inset-0 z-50 hidden">
-  <div class="modal-overlay absolute inset-0" onclick="closeDeleteModal()"></div>
-  <div class="relative z-10 flex items-center justify-center h-full px-4">
-    <div class="neo-border rounded-2xl bg-cream w-full max-w-sm p-6 animate-in text-center">
-      <i data-lucide="alert-triangle" class="w-12 h-12 text-sunset mx-auto mb-3"></i>
-      <p class="font-display font-bold text-lg mb-1">ลบ Template นี้?</p>
-      <p class="text-sm opacity-70 mb-4">การลบจะไม่สามารถย้อนกลับได้</p>
-      <div class="flex gap-2">
-        <button onclick="closeDeleteModal()" class="neo-btn bg-white rounded-lg px-4 py-2 font-display font-bold text-sm flex-1">ยกเลิก</button>
-        <button id="confirmDeleteBtn" class="neo-btn bg-sunset text-white rounded-lg px-4 py-2 font-display font-bold text-sm flex-1">ลบเลย</button>
-      </div>
+<!-- ══════════════════════════════════════
+     DELETE MODAL
+══════════════════════════════════════ -->
+<div id="deleteModal" style="display:none; position:fixed; inset:0; z-index:45; align-items:center; justify-content:center; padding:16px;">
+  <div class="overlay" onclick="closeDeleteModal()" style="position:fixed; inset:0; z-index:44;"></div>
+  <div class="modal-box animate-in" style="z-index:46; max-width:380px; padding:28px 24px; text-align:center;">
+    <div style="width:52px;height:52px;background:var(--danger-lt);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+      <i data-lucide="trash-2" style="width:24px;height:24px;color:var(--danger);"></i>
+    </div>
+    <p style="font-weight:700;font-size:16px;margin:0 0 6px;">ลบ Template นี้?</p>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 20px;">การลบจะไม่สามารถย้อนกลับได้</p>
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeDeleteModal()" class="btn-ghost" style="flex:1;justify-content:center;">ยกเลิก</button>
+      <button id="confirmDeleteBtn" class="btn-danger" style="flex:1;">ลบเลย</button>
     </div>
   </div>
 </div>
 
-<!-- VIEW MODAL -->
-<div id="viewModal" class="fixed inset-0 z-50 hidden">
-  <div class="modal-overlay absolute inset-0" onclick="closeViewModal()"></div>
-  <div class="relative z-10 w-full h-full overflow-auto flex items-start justify-center py-8 px-4">
-    <div class="neo-border rounded-2xl bg-cream w-full max-w-lg animate-in">
-      <div id="viewHeader" class="p-5 border-b-2 border-ink flex items-center justify-between rounded-t-2xl"
-        style="background:linear-gradient(135deg,#BFFF00,#A855F7)">
-        <h2 id="viewTitle" class="font-display font-extrabold text-xl"></h2>
-        <button onclick="closeViewModal()" class="hover:scale-110 transition-transform">
-          <i data-lucide="x" class="w-6 h-6"></i>
-        </button>
-      </div>
-      <div id="viewContent" class="p-5 overflow-y-auto max-h-[65vh]"></div>
-      <div class="p-5 border-t-2 border-ink flex gap-2">
-        <button onclick="closeViewModal()" class="neo-btn bg-white rounded-lg px-4 py-2 font-display font-bold text-sm flex-1">ปิด</button>
-        <button id="viewEditBtn" class="neo-btn bg-neon text-white rounded-lg px-4 py-2 font-display font-bold text-sm flex-1">แก้ไข</button>
-      </div>
+<!-- ══════════════════════════════════════
+     VIEW MODAL
+══════════════════════════════════════ -->
+<div id="viewModal" style="display:none; position:fixed; inset:0; z-index:45; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;">
+  <div class="overlay" onclick="closeViewModal()" style="position:fixed; inset:0; z-index:44;"></div>
+  <div class="modal-box animate-in" style="z-index:46;">
+    <div id="viewHeader" style="padding:18px 20px; border-bottom:1.5px solid var(--border); display:flex; align-items:center; justify-content:space-between; border-radius:14px 14px 0 0; background:var(--accent);">
+      <h2 id="viewTitle" style="font-weight:700;font-size:16px;color:#fff;margin:0;"></h2>
+      <button onclick="closeViewModal()" class="btn-icon" style="color:#fff;">
+        <i data-lucide="x" style="width:18px;height:18px;"></i>
+      </button>
+    </div>
+    <div id="viewContent" style="padding:20px; overflow-y:auto; max-height:65vh;"></div>
+    <hr class="divider">
+    <div style="padding:16px 20px; display:flex; gap:10px;">
+      <button onclick="closeViewModal()" class="btn-ghost" style="flex:1;justify-content:center;">ปิด</button>
+      <button id="viewEditBtn" class="btn-primary" style="flex:1;justify-content:center;">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> แก้ไข
+      </button>
     </div>
   </div>
 </div>
 
+<!-- ══════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════ -->
 <script>
-// ===== STATE =====
 let allTemplates = [];
-let searchQuery = '';
-let editingId = null;
+let searchQuery  = '';
+let editingId    = null;
 let deletingRecord = null;
-let modalSteps = [];
-let selectedColor = '#A855F7';
-let dragSrcIndex = null;
-let _firstLoad = true;  // for showing skeleton vs grid
+let modalSteps   = [];
+let selectedColor = '#2563EB';
+let dragSrcIndex  = null;
+let _firstLoad    = true;
 
-const COLORS = ['#A855F7','#BFFF00','#FF6B35','#3B82F6','#EF4444','#10B981','#F59E0B','#EC4899','#1a1a1a','#FFFFFF'];
+// Blue-centric color palette matching the theme
+const COLORS = [
+  '#2563EB','#1D4ED8','#0EA5E9','#0891B2',
+  '#374151','#6B7280','#111827','#FFFFFF',
+  '#059669','#DC2626'
+];
 
-// ===== TOAST =====
-function showToast(msg, bg = '#BFFF00') {
+// ── TOAST ──────────────────────────────
+function showToast(msg, type = 'info') {
   const t = document.createElement('div');
-  t.className = 'toast';
-  t.style.background = bg;
-  t.style.color = (bg === '#BFFF00' || bg === '#FFFFFF') ? '#1a1a1a' : '#fff';
+  t.className = 'toast ' + type;
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2600);
 }
 
-// ===== SEARCH =====
+// ── SEARCH ─────────────────────────────
 function handleSearch(q) {
   searchQuery = q.toLowerCase().trim();
   renderTemplates();
 }
 
-// ===== RENDER TEMPLATES =====
+// ── RENDER TEMPLATES ───────────────────
 function renderTemplates() {
-  const container  = document.getElementById('templateList');
-  const emptyState = document.getElementById('emptyState');
-  const loadingEl  = document.getElementById('loadingState');
+  const grid      = document.getElementById('templateList');
+  const empty     = document.getElementById('emptyState');
+  const loading   = document.getElementById('loadingState');
 
-  // Hide loading skeleton after first real data arrives
   if (_firstLoad) {
     _firstLoad = false;
-    loadingEl.classList.add('hidden');
-    container.classList.remove('hidden');
-    container.classList.add('grid');
+    loading.style.display = 'none';
+    grid.style.display    = 'grid';
   }
 
-  let filtered = allTemplates;
+  let list = allTemplates;
   if (searchQuery) {
-    filtered = filtered.filter(t =>
+    list = list.filter(t =>
       (t.template_name || '').toLowerCase().includes(searchQuery) ||
-      (t.surgery_name  || '').toLowerCase().includes(searchQuery) ||
-      (t.notes         || '').toLowerCase().includes(searchQuery)
+      (t.notes || '').toLowerCase().includes(searchQuery)
     );
   }
 
-  container.querySelectorAll('.template-card').forEach(el => el.remove());
+  grid.querySelectorAll('.template-card').forEach(el => el.remove());
 
-  if (filtered.length === 0) {
-    emptyState.classList.remove('hidden');
-    emptyState.classList.add('flex');
+  if (list.length === 0) {
+    empty.style.display = 'flex';
     lucide.createIcons();
     return;
   }
+  empty.style.display = 'none';
 
-  emptyState.classList.add('hidden');
-  emptyState.classList.remove('flex');
-
-  filtered.forEach(tmpl => {
+  list.forEach(tmpl => {
     const id = tmpl.__backendId;
     let steps = [];
     try { steps = JSON.parse(tmpl.steps_json || '[]'); } catch(e) {}
-    const color = tmpl.color || '#A855F7';
+    const color = tmpl.color || '#2563EB';
 
     const card = document.createElement('div');
-    card.className = 'template-card neo-border rounded-xl bg-white overflow-hidden cursor-pointer animate-in';
+    card.className = 'card template-card animate-in';
+    card.style.cursor = 'pointer';
     card.dataset.id = id;
+
+    // Accent bar color
+    const barLight = ['#FFFFFF','#F3F4F6'];
+    const barColor = barLight.includes(color) ? '#D1D5DB' : color;
+
     card.innerHTML = `
-      <div class="h-2" style="background:${color}"></div>
-      <div class="p-4">
-        <div class="flex items-start justify-between mb-3">
-          <div class="flex-1 min-w-0 mr-2">
-            <h3 class="font-display font-extrabold text-lg leading-tight truncate">${esc(tmpl.template_name || 'Untitled')}</h3>
-            ${tmpl.surgery_name && tmpl.surgery_name !== tmpl.template_name
-              ? `<p class="text-xs opacity-60 mt-0.5 truncate">${esc(tmpl.surgery_name)}</p>` : ''}
+      <div style="height:4px; background:${barColor};"></div>
+      <div style="padding:16px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px;">
+          <div style="flex:1; min-width:0; margin-right:8px;">
+            <h3 style="font-weight:700; font-size:15px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              ${esc(tmpl.template_name || 'Untitled')}
+            </h3>
           </div>
-          <div class="flex gap-1 shrink-0">
-            <button onclick="event.stopPropagation();openEditModal('${id}')"
-              class="p-1.5 rounded hover:bg-purple-100 text-purple-600 transition-colors" title="แก้ไข">
-              <i data-lucide="pencil" class="w-4 h-4"></i>
+          <div style="display:flex; gap:2px; flex-shrink:0;">
+            <button onclick="event.stopPropagation();openEditModal('${id}')" class="btn-icon blue" title="แก้ไข">
+              <i data-lucide="pencil" style="width:15px;height:15px;"></i>
             </button>
-            <button onclick="event.stopPropagation();duplicateTemplate('${id}')"
-              class="p-1.5 rounded hover:bg-gray-100 transition-colors" title="ทำสำเนา">
-              <i data-lucide="copy" class="w-4 h-4"></i>
+            <button onclick="event.stopPropagation();duplicateTemplate('${id}')" class="btn-icon" title="ทำสำเนา">
+              <i data-lucide="copy" style="width:15px;height:15px;"></i>
             </button>
-            <button onclick="event.stopPropagation();openDeleteModal('${id}')"
-              class="p-1.5 rounded hover:bg-red-50 text-red-500 transition-colors" title="ลบ">
-              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            <button onclick="event.stopPropagation();openDeleteModal('${id}')" class="btn-icon danger" title="ลบ">
+              <i data-lucide="trash-2" style="width:15px;height:15px;"></i>
             </button>
           </div>
         </div>
-        <div class="flex items-center gap-2 text-xs">
-          <span class="px-2 py-0.5 rounded-full font-bold"
-            style="background:${color}20;color:${color==='#BFFF00'?'#5a7000':color};border:1.5px solid ${color}">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span class="badge">
+            <i data-lucide="list-checks" style="width:11px;height:11px;"></i>
             ${steps.length} ขั้นตอน
           </span>
+          ${tmpl.notes ? `<span style="font-size:11px;color:var(--muted);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${esc(tmpl.notes)}</span>` : ''}
         </div>
-        ${tmpl.notes ? `<div class="text-xs mt-3 p-2 bg-gray-50 rounded opacity-70 italic border-l-2 line-clamp-2" style="border-color:${color}">"${esc(tmpl.notes)}"</div>` : ''}
       </div>`;
     card.onclick = () => viewTemplate(id);
-    container.appendChild(card);
+    grid.appendChild(card);
   });
+
   lucide.createIcons();
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-// ===== CREATE MODAL =====
+// ── OPEN CREATE ────────────────────────
 function openCreateModal() {
   editingId = null;
   document.getElementById('modalTitle').textContent = 'สร้าง Template ใหม่';
   document.getElementById('inputSurgery').value = '';
-  document.getElementById('inputNotes').value = '';
-  modalSteps = [];
-  selectedColor = '#A855F7';
-  document.getElementById('modal').classList.remove('hidden');
+  document.getElementById('inputNotes').value   = '';
+  modalSteps    = [];
+  selectedColor = '#2563EB';
+  showModal('modal');
   requestAnimationFrame(() => {
     renderColorPicker();
     renderSteps();
@@ -413,17 +534,17 @@ function openCreateModal() {
   });
 }
 
-// ===== EDIT MODAL =====
+// ── OPEN EDIT ──────────────────────────
 function openEditModal(id) {
   const tmpl = allTemplates.find(t => t.__backendId === id);
   if (!tmpl) return;
   editingId = id;
   document.getElementById('modalTitle').textContent = 'แก้ไข Template';
   document.getElementById('inputSurgery').value = tmpl.template_name || '';
-  document.getElementById('inputNotes').value = tmpl.notes || '';
+  document.getElementById('inputNotes').value   = tmpl.notes || '';
   try { modalSteps = JSON.parse(tmpl.steps_json || '[]'); } catch(e) { modalSteps = []; }
-  selectedColor = tmpl.color || '#A855F7';
-  document.getElementById('modal').classList.remove('hidden');
+  selectedColor = tmpl.color || '#2563EB';
+  showModal('modal');
   requestAnimationFrame(() => {
     renderColorPicker();
     renderSteps();
@@ -431,27 +552,33 @@ function openEditModal(id) {
   });
 }
 
-function closeModal() { document.getElementById('modal').classList.add('hidden'); editingId = null; }
+function showModal(id) {
+  document.getElementById(id).style.display = 'flex';
+}
+function hideModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
 
-// ===== SAVE (async, uses Firebase) =====
+function closeModal()       { hideModal('modal'); editingId = null; }
+function closeDeleteModal() { hideModal('deleteModal'); deletingRecord = null; }
+function closeViewModal()   { hideModal('viewModal'); }
+
+// ── SAVE ───────────────────────────────
 async function saveTemplate() {
   const surgery = document.getElementById('inputSurgery').value.trim();
-  if (!surgery) { showToast('กรุณาใส่ชื่อการผ่าตัด', '#EF4444'); return; }
-
-  // Check auth
-  if (!window._uid) { showToast('ยังไม่ได้เชื่อมต่อ Firebase', '#EF4444'); return; }
+  if (!surgery) { showToast('กรุณาใส่ชื่อการผ่าตัด', 'error'); return; }
+  if (!window._uid) { showToast('ยังไม่ได้เชื่อมต่อ Firebase', 'error'); return; }
 
   syncStepsFromDOM();
 
   const data = {
     type: 'template',
     template_name: surgery,
-    surgery_name: surgery,
-    surgeon_name: '',
-    notes: document.getElementById('inputNotes').value.trim(),
-    steps_json: JSON.stringify(modalSteps),
-    color: selectedColor,
-    updated_at: new Date().toISOString()
+    surgery_name:  surgery,
+    notes:         document.getElementById('inputNotes').value.trim(),
+    steps_json:    JSON.stringify(modalSteps),
+    color:         selectedColor,
+    updated_at:    new Date().toISOString()
   };
 
   const btn = document.getElementById('saveBtn');
@@ -462,59 +589,55 @@ async function saveTemplate() {
     let result;
     if (editingId) {
       const existing = allTemplates.find(t => t.__backendId === editingId);
-      if (existing) {
-        result = await window.dataSdk.update({ ...existing, ...data });
-      } else {
-        throw new Error('ไม่พบ Template ที่ต้องการแก้ไข');
-      }
+      if (existing) result = await window.dataSdk.update({ ...existing, ...data });
+      else throw new Error('ไม่พบ template');
     } else {
       data.created_at = new Date().toISOString();
       result = await window.dataSdk.create(data);
     }
 
     if (result.isOk) {
-      showToast(editingId ? 'อัปเดตสำเร็จ! ☁️' : 'สร้างสำเร็จ! ☁️', '#BFFF00');
+      showToast(editingId ? '✓ อัปเดตสำเร็จ' : '✓ สร้างสำเร็จ', 'success');
       closeModal();
     } else {
-      showToast('Error: ' + (result.error || 'เกิดข้อผิดพลาด'), '#EF4444');
+      showToast('Error: ' + (result.error || 'เกิดข้อผิดพลาด'), 'error');
     }
   } catch(e) {
-    showToast('Error: ' + e.message, '#EF4444');
+    showToast('Error: ' + e.message, 'error');
   } finally {
     btn.textContent = 'บันทึก';
     btn.disabled = false;
   }
 }
 
-// ===== DUPLICATE =====
+// ── DUPLICATE ──────────────────────────
 async function duplicateTemplate(id) {
-  if (!window._uid) { showToast('ยังไม่ได้เชื่อมต่อ', '#EF4444'); return; }
+  if (!window._uid) { showToast('ยังไม่ได้เชื่อมต่อ', 'error'); return; }
   const tmpl = allTemplates.find(t => t.__backendId === id);
   if (!tmpl) return;
   const dup = {
     type: 'template',
     template_name: (tmpl.template_name || '') + ' (สำเนา)',
     surgery_name: tmpl.surgery_name || '',
-    surgeon_name: '',
     steps_json: tmpl.steps_json || '[]',
     notes: tmpl.notes || '',
-    color: tmpl.color || '#A855F7',
+    color: tmpl.color || '#2563EB',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
   const r = await window.dataSdk.create(dup);
-  if (r.isOk) showToast('ทำสำเนาสำเร็จ! ☁️', '#BFFF00');
-  else showToast('Error: ' + (r.error || 'เกิดข้อผิดพลาด'), '#EF4444');
+  if (r.isOk) showToast('✓ ทำสำเนาสำเร็จ', 'success');
+  else showToast('Error: ' + (r.error || ''), 'error');
 }
 
-// ===== DELETE =====
+// ── DELETE ─────────────────────────────
 function openDeleteModal(id) {
   deletingRecord = allTemplates.find(t => t.__backendId === id);
   if (!deletingRecord) return;
-  document.getElementById('deleteModal').classList.remove('hidden');
+  showModal('deleteModal');
   lucide.createIcons();
 
-  const btn = document.getElementById('confirmDeleteBtn');
+  const btn    = document.getElementById('confirmDeleteBtn');
   const newBtn = btn.cloneNode(true);
   btn.parentNode.replaceChild(newBtn, btn);
   newBtn.onclick = async () => {
@@ -523,70 +646,68 @@ function openDeleteModal(id) {
     const r = await window.dataSdk.delete(deletingRecord);
     newBtn.textContent = 'ลบเลย';
     newBtn.disabled = false;
-    if (r.isOk) { showToast('ลบสำเร็จ', '#FF6B35'); closeDeleteModal(); }
-    else showToast('Error: ' + (r.error || 'เกิดข้อผิดพลาด'), '#EF4444');
+    if (r.isOk) { showToast('ลบสำเร็จ', 'info'); closeDeleteModal(); }
+    else showToast('Error: ' + (r.error || ''), 'error');
   };
 }
 
-function closeDeleteModal() { document.getElementById('deleteModal').classList.add('hidden'); deletingRecord = null; }
-
-// ===== VIEW =====
+// ── VIEW ───────────────────────────────
 function viewTemplate(id) {
   const tmpl = allTemplates.find(t => t.__backendId === id);
   if (!tmpl) return;
   let steps = [];
   try { steps = JSON.parse(tmpl.steps_json || '[]'); } catch(e) {}
-  const color = tmpl.color || '#A855F7';
+  const color = tmpl.color || '#2563EB';
 
-  document.getElementById('viewHeader').style.background = `linear-gradient(135deg,${color},${shiftColor(color)})`;
-  const titleEl = document.getElementById('viewTitle');
-  titleEl.textContent = tmpl.template_name || 'Untitled';
-  const lightColors = ['#BFFF00','#FFFFFF','#F59E0B','#10B981'];
-  const txtColor = lightColors.includes(color) ? '#1a1a1a' : '#ffffff';
-  titleEl.style.color = txtColor;
-  document.getElementById('viewHeader').querySelector('button').style.color = txtColor;
+  // Header accent
+  const header = document.getElementById('viewHeader');
+  const lightColors = ['#FFFFFF','#F3F4F6'];
+  const isDark = !lightColors.includes(color);
+  header.style.background  = color;
+  header.style.borderColor = color;
+  document.getElementById('viewTitle').style.color = isDark ? '#fff' : 'var(--text)';
+  header.querySelector('button').style.color = isDark ? '#fff' : 'var(--text)';
+  document.getElementById('viewTitle').textContent = tmpl.template_name || 'Untitled';
   document.getElementById('viewEditBtn').onclick = () => { closeViewModal(); openEditModal(id); };
 
-  let html = '<div class="space-y-4">';
+  let html = '<div style="display:flex;flex-direction:column;gap:14px;">';
+
   if (tmpl.notes) {
-    html += `<div class="bg-blue-50 p-3 rounded border-l-4 border-blue-400">
-      <p class="text-xs font-mono opacity-60 uppercase mb-1">หมายเหตุ</p>
-      <p class="text-sm">${esc(tmpl.notes)}</p>
+    html += `<div style="background:var(--accent-lt);border:1px solid #BFDBFE;border-radius:8px;padding:12px;">
+      <p style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;margin:0 0 4px;">หมายเหตุ</p>
+      <p style="font-size:13px;margin:0;">${esc(tmpl.notes)}</p>
     </div>`;
   }
+
   if (steps.length) {
-    html += `<div class="space-y-2">
-      <p class="text-xs font-mono opacity-60 uppercase">ขั้นตอน (${steps.length})</p><ol class="space-y-2">`;
+    html += `<div>
+      <p style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px;">ขั้นตอน (${steps.length})</p>
+      <ol style="display:flex;flex-direction:column;gap:8px;list-style:none;padding:0;margin:0;">`;
     steps.forEach((s, i) => {
-      const sc = s.color || '#f3f4f6';
-      html += `<li class="flex gap-3 items-start p-3 bg-gray-50 rounded-lg border border-gray-100">
-        <span class="neo-border-sm rounded-full w-8 h-8 flex items-center justify-center text-xs font-bold shrink-0"
-          style="background:${sc};color:#1a1a1a;min-width:2rem;">${i+1}</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium">${esc(s.text || 'ขั้นตอนที่ '+(i+1))}</p>
-          ${s.note ? `<p class="text-xs mt-2 p-2 bg-yellow-50 rounded border-l-2 border-yellow-300 italic">${esc(s.note)}</p>` : ''}
-        </div></li>`;
+      const sc = s.color && s.color !== '#f3f4f6' ? s.color : 'var(--accent-lt)';
+      html += `<li style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+        <span style="width:28px;height:28px;border-radius:50%;background:${sc};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;color:${sc==='var(--accent-lt)'?'var(--accent)':'#fff'};">${i+1}</span>
+        <div style="flex:1;min-width:0;">
+          <p style="font-size:13px;font-weight:500;margin:0;">${esc(s.text || 'ขั้นตอนที่ '+(i+1))}</p>
+          ${s.note ? `<p style="font-size:12px;margin:6px 0 0;padding:6px 10px;background:#FFFBEB;border-left:3px solid #FCD34D;border-radius:0 4px 4px 0;font-style:italic;color:var(--muted);">${esc(s.note)}</p>` : ''}
+        </div>
+      </li>`;
     });
     html += '</ol></div>';
   } else {
-    html += '<div class="text-center py-8 opacity-40"><i data-lucide="list-x" class="w-10 h-10 mx-auto mb-2"></i><p class="text-sm">ไม่มีขั้นตอน</p></div>';
+    html += `<div style="text-align:center;padding:40px 0;color:var(--muted);">
+      <i data-lucide="list-x" style="width:36px;height:36px;display:block;margin:0 auto 8px;"></i>
+      <p style="font-size:13px;margin:0;">ไม่มีขั้นตอนในเทมเพลตนี้</p>
+    </div>`;
   }
+
   html += '</div>';
   document.getElementById('viewContent').innerHTML = html;
-  document.getElementById('viewModal').classList.remove('hidden');
+  showModal('viewModal');
   lucide.createIcons();
 }
 
-function closeViewModal() { document.getElementById('viewModal').classList.add('hidden'); }
-
-function shiftColor(h) {
-  const m = {'#A855F7':'#EC4899','#BFFF00':'#10B981','#FF6B35':'#F59E0B','#3B82F6':'#6366F1',
-              '#EF4444':'#F97316','#10B981':'#06B6D4','#F59E0B':'#EF4444','#EC4899':'#A855F7',
-              '#1a1a1a':'#374151','#FFFFFF':'#E5E7EB'};
-  return m[h] || '#A855F7';
-}
-
-// ===== COLOR PICKER =====
+// ── COLOR PICKER ───────────────────────
 function renderColorPicker() {
   const c = document.getElementById('colorPicker');
   c.innerHTML = '';
@@ -594,16 +715,17 @@ function renderColorPicker() {
     const dot = document.createElement('div');
     dot.className = 'color-dot' + (col === selectedColor ? ' active' : '');
     dot.style.background = col;
+    dot.style.boxShadow  = col === '#FFFFFF' ? 'inset 0 0 0 1px #D1D5DB' : 'none';
     dot.title = col;
     dot.onclick = () => { selectedColor = col; renderColorPicker(); };
     c.appendChild(dot);
   });
 }
 
-// ===== STEPS =====
+// ── STEPS ──────────────────────────────
 function addStep() {
   syncStepsFromDOM();
-  modalSteps.push({ text:'', color:'#f3f4f6', note:'', id: Date.now()+Math.random() });
+  modalSteps.push({ text:'', color:'#EFF6FF', note:'', id: Date.now()+Math.random() });
   renderSteps();
   requestAnimationFrame(() => {
     const inputs = document.querySelectorAll('[data-step-text]');
@@ -614,37 +736,43 @@ function addStep() {
 function renderSteps() {
   const container = document.getElementById('stepsList');
   container.innerHTML = '';
+
   if (!modalSteps.length) {
-    container.innerHTML = '<p class="text-xs opacity-50 text-center py-4">ยังไม่มีขั้นตอน — กดเพิ่มขั้นตอน</p>';
+    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px;border:1.5px dashed var(--border);border-radius:8px;">
+      ยังไม่มีขั้นตอน — กดปุ่ม "เพิ่มขั้นตอน"
+    </div>`;
     return;
   }
+
   modalSteps.forEach((step, i) => {
     const div = document.createElement('div');
-    div.className = 'step-item neo-border-sm rounded-lg bg-white overflow-hidden';
+    div.className = 'step-item';
     div.draggable = true;
     div.dataset.index = i;
     div.innerHTML = `
-      <div class="flex items-center gap-2 p-2 bg-gray-50 border-b border-gray-200">
-        <div class="cursor-grab active:cursor-grabbing shrink-0 px-1 opacity-40 touch-none select-none" data-drag-handle="true">
-          <i data-lucide="grip-vertical" class="w-4 h-4"></i>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border);">
+        <div data-drag-handle="true" style="cursor:grab;color:var(--muted);flex-shrink:0;line-height:0;touch-action:none;user-select:none;">
+          <i data-lucide="grip-vertical" style="width:15px;height:15px;"></i>
         </div>
-        <span class="font-bold text-xs shrink-0 w-5 text-center opacity-60">${i+1}</span>
-        <input type="text" value="${esc(step.text)}" placeholder="ขั้นตอนที่ ${i+1}"
-          class="flex-1 text-sm border-0 bg-transparent focus:outline-none min-w-0" data-step-text="${i}">
-        <input type="color" value="${step.color||'#f3f4f6'}"
-          class="w-6 h-6 rounded cursor-pointer border border-gray-300 shrink-0 p-0" data-step-color="${i}" title="สี">
-        <button onclick="removeStep(${i})" class="shrink-0 p-1 rounded hover:bg-red-50 text-red-400">
-          <i data-lucide="x" class="w-4 h-4"></i>
+        <span style="font-size:11px;font-weight:700;color:var(--muted);width:18px;text-align:center;flex-shrink:0;">${i+1}</span>
+        <input type="text" value="${esc(step.text)}" placeholder="ชื่อขั้นตอน"
+          class="inp" style="flex:1;padding:5px 8px;font-size:13px;border-color:transparent;background:transparent;" data-step-text="${i}">
+        <input type="color" value="${step.color||'#EFF6FF'}"
+          style="width:24px;height:24px;border:1.5px solid var(--border);border-radius:4px;cursor:pointer;padding:2px;flex-shrink:0;background:none;"
+          data-step-color="${i}" title="เปลี่ยนสี">
+        <button onclick="removeStep(${i})" class="btn-icon danger" style="flex-shrink:0;padding:4px;">
+          <i data-lucide="x" style="width:14px;height:14px;"></i>
         </button>
       </div>
-      <textarea placeholder="หมายเหตุของขั้นตอนนี้..."
-        class="w-full text-xs border-0 bg-white p-2 focus:outline-none resize-none h-14" data-step-note="${i}"></textarea>`;
+      <textarea placeholder="หมายเหตุ (ถ้ามี)..." data-step-note="${i}"
+        class="inp" style="border:none;border-radius:0;resize:none;height:52px;font-size:12px;padding:8px 10px;background:var(--surface);"></textarea>`;
 
     div.querySelector(`[data-step-note="${i}"]`).value = step.note || '';
 
+    // Drag events
     div.addEventListener('dragstart', e => { dragSrcIndex = i; setTimeout(()=>div.classList.add('dragging'),0); e.dataTransfer.effectAllowed='move'; });
-    div.addEventListener('dragend', () => div.classList.remove('dragging'));
-    div.addEventListener('dragover', e => { e.preventDefault(); div.classList.add('drag-over'); });
+    div.addEventListener('dragend',   () => div.classList.remove('dragging'));
+    div.addEventListener('dragover',  e => { e.preventDefault(); div.classList.add('drag-over'); });
     div.addEventListener('dragleave', () => div.classList.remove('drag-over'));
     div.addEventListener('drop', e => {
       e.preventDefault(); div.classList.remove('drag-over');
@@ -656,6 +784,7 @@ function renderSteps() {
       }
     });
 
+    // Touch drag
     const handle = div.querySelector('[data-drag-handle]');
     handle.addEventListener('touchstart', () => { dragSrcIndex = i; div.classList.add('dragging'); }, {passive:true});
     handle.addEventListener('touchmove', e => {
@@ -669,16 +798,16 @@ function renderSteps() {
     handle.addEventListener('touchend', e => {
       div.classList.remove('dragging');
       const cy = e.changedTouches[0].clientY;
-      let targetIdx = null;
+      let tgt = null;
       container.querySelectorAll('.step-item').forEach((item, idx) => {
         item.classList.remove('drag-over');
         const r = item.getBoundingClientRect();
-        if (cy > r.top && cy < r.bottom) targetIdx = idx;
+        if (cy > r.top && cy < r.bottom) tgt = idx;
       });
-      if (targetIdx !== null && targetIdx !== dragSrcIndex) {
+      if (tgt !== null && tgt !== dragSrcIndex) {
         syncStepsFromDOM();
         const moved = modalSteps.splice(dragSrcIndex,1)[0];
-        modalSteps.splice(targetIdx,0,moved);
+        modalSteps.splice(tgt,0,moved);
         renderSteps();
       }
     });
@@ -706,15 +835,15 @@ function syncStepsFromDOM() {
   });
 }
 
-// Keyboard shortcuts
+// ── KEYBOARD ───────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (!document.getElementById('viewModal').classList.contains('hidden')) closeViewModal();
-    else if (!document.getElementById('deleteModal').classList.contains('hidden')) closeDeleteModal();
-    else if (!document.getElementById('modal').classList.contains('hidden')) closeModal();
+    if (document.getElementById('viewModal').style.display   !== 'none') closeViewModal();
+    else if (document.getElementById('deleteModal').style.display !== 'none') closeDeleteModal();
+    else if (document.getElementById('modal').style.display  !== 'none') closeModal();
   }
   if ((e.ctrlKey||e.metaKey) && e.key === 'Enter') {
-    if (!document.getElementById('modal').classList.contains('hidden')) saveTemplate();
+    if (document.getElementById('modal').style.display !== 'none') saveTemplate();
   }
 });
 
