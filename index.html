@@ -9,9 +9,10 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-    import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
+    // --- Firebase Configuration ---
     const firebaseConfig = {
       apiKey: "AIzaSyAZ1RDykpCCRdvu8DDmxYFWILlKUPuxDtg",
       authDomain: "listsor-6049b.firebaseapp.com",
@@ -24,238 +25,264 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     const auth = getAuth(app);
-    const provider = new GoogleAuthProvider();
 
+    // Global State
     window._db = db;
-    window.loginWithGoogle = () => signInWithPopup(auth, provider);
-    window.logout = () => signOut(auth);
+    window.allTemplates = [];
+    window.currentSteps = [];
+    window.selectedColor = '#2563EB';
+    window.editId = null;
 
-    onAuthStateChanged(auth, (user) => {
-      const loginSection = document.getElementById('loginSection');
-      const appSection = document.getElementById('appSection');
-      if (user) {
-        window._uid = user.uid;
-        loginSection.style.display = 'none';
-        appSection.style.display = 'block';
-        document.getElementById('userEmail').textContent = user.email;
-        startListener();
+    // --- Authentication ---
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        await signInAnonymously(auth).catch(err => console.error("Auth Error:", err));
       } else {
-        loginSection.style.display = 'flex';
-        appSection.style.display = 'none';
+        window._uid = user.uid;
+        startListener();
+        document.getElementById('appSection').style.display = 'block';
+        document.getElementById('loadingOverlay').style.display = 'none';
       }
     });
 
+    // --- Realtime Listener ---
     function startListener() {
       const q = query(collection(db, 'users', window._uid, 'templates'), orderBy('updated_at', 'desc'));
       onSnapshot(q, snap => {
-        allTemplates = snap.docs.map(d => ({ __backendId: d.id, ...d.data() }));
-        renderTemplates();
+        window.allTemplates = snap.docs.map(d => ({ __backendId: d.id, ...d.data() }));
+        window.renderTemplates();
       });
     }
+
+    // --- Database Operations ---
+    window.saveTemplate = async () => {
+        const name = document.getElementById('inputSurgery').value;
+        if (!name) return alert('กรุณาระบุชื่อหัตถการ');
+        
+        const btn = document.getElementById('saveBtn');
+        btn.disabled = true;
+        btn.innerHTML = 'กำลังบันทึก...';
+
+        const data = {
+          template_name: name,
+          color: window.selectedColor,
+          steps_json: JSON.stringify(window.currentSteps),
+          updated_at: serverTimestamp()
+        };
+
+        try {
+            if (window.editId) {
+              await setDoc(doc(db, 'users', window._uid, 'templates', window.editId), data);
+            } else {
+              await addDoc(collection(db, 'users', window._uid, 'templates'), data);
+            }
+            window.closeModal();
+        } catch (e) {
+            alert('เกิดข้อผิดพลาดในการเชื่อมต่อ Firebase');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = 'บันทึกข้อมูล';
+        }
+    };
+
+    window.deleteTemplate = async (id) => {
+        if(confirm('คุณต้องการลบเทมเพลตนี้ใช่หรือไม่?')) {
+            await deleteDoc(doc(db, 'users', window._uid, 'templates', id));
+            window.closeModal();
+        }
+    };
   </script>
 
   <style>
     :root { --accent: #2563EB; --bg: #F8FAFC; --border: #E2E8F0; }
     body { font-family: 'Inter', 'IBM Plex Sans Thai', sans-serif; background: var(--bg); margin: 0; color: #1E293B; }
-    .btn-primary { background: var(--accent); color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
+    
+    .btn-primary { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
     .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
-    .card { background: white; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); transition: 0.2s; }
-    .card:hover { border-color: var(--accent); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
-    .inp { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; outline: none; box-sizing: border-box; }
-    .inp:focus { border-color: var(--accent); ring: 3px rgba(37,99,235,0.1); }
+    .btn-primary:disabled { background: #94A3B8; cursor: not-allowed; }
+
+    .card { background: white; border-radius: 16px; border: 1px solid var(--border); transition: 0.2s; cursor: pointer; overflow: hidden; }
+    .card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
     
-    /* Step Styling */
-    .step-box { background: white; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
-    .step-header { padding: 8px 12px; background: #F1F5F9; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
-    
-    /* Popup Picker */
-    .color-popup { position: absolute; background: white; border-radius: 12px; padding: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); display: none; z-index: 100; border: 1px solid var(--border); grid-template-columns: repeat(5, 1fr); gap: 8px; }
-    .color-dot { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
-    .color-dot:hover { transform: scale(1.1); }
+    .inp { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; box-sizing: border-box; outline: none; transition: 0.2s; }
+    .inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+
+    /* Step Boxes */
+    .step-box { background: white; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; overflow: hidden; border-left-width: 8px; transition: 0.2s; }
+    .step-header { padding: 10px 14px; background: #F8FAFC; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+    .color-dot-sm { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid white; box-shadow: 0 0 0 1px #cbd5e1; }
+    .color-dot-sm.active { box-shadow: 0 0 0 2px var(--accent); transform: scale(1.1); }
+
+    /* Loading Spinner */
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
 
-<div id="loginSection" style="height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;">
-  <div style="background: var(--accent); color: white; padding: 20px; border-radius: 24px;"><i data-lucide="activity" size="48"></i></div>
-  <div style="text-align: center;">
-    <h1 style="margin: 0; font-size: 24px; font-weight: 800;">ListsOR Pro</h1>
-    <p style="color: #64748B;">ซิงค์ข้อมูลการผ่าตัดของคุณข้ามเครื่องได้ทันที</p>
-  </div>
-  <button onclick="loginWithGoogle()" class="btn-primary" style="background: white; color: #1E293B; border: 1px solid var(--border);">
-    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"> เข้าสู่ระบบด้วย Google
-  </button>
+<!-- Loading Overlay -->
+<div id="loadingOverlay" style="position: fixed; inset: 0; background: white; z-index: 1000; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 15px;">
+    <div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+    <p style="font-weight: 500; color: #64748B;">กำลังซิงค์ข้อมูลกับ ListsOR Cloud...</p>
 </div>
 
 <div id="appSection" style="display: none;">
   <header style="background: white; border-bottom: 1px solid var(--border); padding: 16px 24px; position: sticky; top: 0; z-index: 50;">
-    <div style="max-width: 1100px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <h1 style="margin: 0; font-size: 20px; font-weight: 800; color: var(--accent);">ListsOR</h1>
-        <span id="userEmail" style="font-size: 12px; color: #94A3B8; background: #F1F5F9; padding: 4px 10px; border-radius: 20px;"></span>
+    <div style="max-width: 1000px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="background: var(--accent); color: white; padding: 6px; border-radius: 10px;"><i data-lucide="activity" size="20"></i></div>
+        <h1 style="margin: 0; font-size: 20px; font-weight: 800; color: #1E293B;">ListsOR Pro</h1>
       </div>
-      <div style="display: flex; gap: 10px;">
-        <button onclick="openCreateModal()" class="btn-primary"><i data-lucide="plus"></i> เพิ่มรายการ</button>
-        <button onclick="logout()" style="background: none; border: none; color: #EF4444; cursor: pointer;"><i data-lucide="log-out"></i></button>
-      </div>
+      <button onclick="openCreateModal()" class="btn-primary"><i data-lucide="plus" size="18"></i> เพิ่มเคสผ่าตัด</button>
     </div>
   </header>
 
-  <main style="max-width: 1100px; margin: 30px auto; padding: 0 24px;">
-    <div id="templateList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px;"></div>
+  <main style="max-width: 1000px; margin: 30px auto; padding: 0 20px;">
+    <div id="templateList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;"></div>
   </main>
 </div>
 
+<!-- Modal -->
 <div id="modal" style="display: none; position: fixed; inset: 0; z-index: 100;">
-  <div onclick="closeModal()" style="position: absolute; inset: 0; background: rgba(15,23,42,0.5); backdrop-filter: blur(4px);"></div>
-  <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; width: 95%; max-width: 550px; border-radius: 24px; max-height: 85vh; display: flex; flex-direction: column;">
-    <div style="padding: 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;">
-      <h2 id="modalTitle" style="margin: 0; font-size: 18px; font-weight: 700;">แก้ไขข้อมูล</h2>
-      <button onclick="closeModal()" style="border: none; background: none; cursor: pointer;"><i data-lucide="x"></i></button>
-    </div>
+  <div onclick="closeModal()" style="position: absolute; inset: 0; background: rgba(15,23,42,0.4); backdrop-filter: blur(4px);"></div>
+  <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; width: 95%; max-width: 550px; border-radius: 24px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);">
     
+    <div style="padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+      <h2 id="modalTitle" style="margin:0; font-size: 18px; font-weight: 700;">ข้อมูลหัตถการ</h2>
+      <button onclick="closeModal()" style="border:none; background:#F1F5F9; border-radius:50%; width:32px; height:32px; cursor:pointer;"><i data-lucide="x" size="16"></i></button>
+    </div>
+
     <div style="padding: 24px; overflow-y: auto; flex: 1;">
-      <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px;">ชื่อหัตถการ / การผ่าตัด</label>
-      <input id="inputSurgery" type="text" class="inp" placeholder="เช่น Phacoemulsification...">
+      <label style="font-size: 13px; font-weight: 600; color: #64748B; display: block; margin-bottom: 8px;">ชื่อการผ่าตัด</label>
+      <input id="inputSurgery" type="text" class="inp" placeholder="เช่น Phacoemulsification, TKRs...">
       
-      <div style="margin: 20px 0; position: relative;">
-        <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px;">สี Template</label>
-        <button onclick="toggleTemplateColorPicker(event)" id="colorBtn" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: white; display: flex; align-items: center; gap: 10px; cursor: pointer;">
-          <div id="colorIndicator" style="width: 20px; height: 20px; border-radius: 50%; background: var(--accent);"></div>
-          <span>กดเพื่อเลือกสี</span>
-        </button>
-        <div id="templateColorPicker" class="color-popup" style="top: 70px; left: 0;"></div>
+      <div style="margin: 20px 0;">
+        <label style="font-size: 13px; font-weight: 600; color: #64748B; display: block; margin-bottom: 10px;">สีหลักของเทมเพลต</label>
+        <div id="mainColorPicker" style="display: flex; gap: 10px;"></div>
       </div>
 
-      <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 10px;">ขั้นตอนการทำงาน</label>
-      <div id="stepsContainer"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 30px; margin-bottom: 12px;">
+        <label style="font-size: 13px; font-weight: 600; color: #64748B;">ขั้นตอนและวิธีการ</label>
+        <button onclick="addNewStep()" style="color: var(--accent); background: none; border: none; cursor: pointer; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px;">
+          <i data-lucide="plus-circle" size="14"></i> เพิ่มขั้นตอน
+        </button>
+      </div>
       
-      <button onclick="addNewStep()" style="width: 100%; margin-top: 15px; padding: 15px; border: 2px dashed var(--border); border-radius: 12px; background: none; color: #64748B; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-        <i data-lucide="plus-circle"></i> เพิ่มขั้นตอนใหม่
-      </button>
+      <div id="stepsContainer"></div>
     </div>
 
-    <div style="padding: 24px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1.5fr; gap: 12px;">
-      <button onclick="closeModal()" style="padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: white; cursor: pointer;">ยกเลิก</button>
-      <button onclick="saveTemplate()" class="btn-primary" style="justify-content: center;">บันทึกและซิงค์ข้อมูล</button>
+    <div id="modalFooter" style="padding: 20px 24px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 2fr; gap: 12px;">
+      <!-- Dynamic Buttons -->
     </div>
   </div>
 </div>
 
 <script>
-  let allTemplates = [];
-  let currentSteps = [];
-  let selectedColor = '#2563EB';
-  let editId = null;
+  const THEME_COLORS = ['#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#EA580C', '#D97706', '#16A34A', '#0891B2', '#64748B'];
 
-  const THEME_COLORS = ['#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#EA580C', '#16A34A', '#0891B2', '#0F172A', '#64748B'];
-
-  function renderTemplates() {
+  window.renderTemplates = () => {
     const list = document.getElementById('templateList');
-    list.innerHTML = allTemplates.map(t => `
-      <div class="card" onclick="openEditModal('${t.__backendId}')" style="cursor: pointer; overflow: hidden;">
-        <div style="height: 5px; background: ${t.color}"></div>
-        <div style="padding: 20px;">
-          <h3 style="margin: 0 0 8px 0; font-size: 17px;">${t.template_name}</h3>
-          <div style="color: #64748B; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-            <i data-lucide="layers" size="14"></i> ${JSON.parse(t.steps_json).length} ขั้นตอน
-          </div>
-        </div>
-      </div>
-    `).join('');
-    lucide.createIcons();
-  }
-
-  function openCreateModal() {
-    editId = null; currentSteps = []; selectedColor = '#2563EB';
-    document.getElementById('modalTitle').textContent = 'สร้างเทมเพลตใหม่';
-    document.getElementById('inputSurgery').value = '';
-    updateColorUI();
-    renderStepsList();
-    document.getElementById('modal').style.display = 'block';
-  }
-
-  function openEditModal(id) {
-    const t = allTemplates.find(x => x.__backendId === id);
-    editId = id;
-    document.getElementById('modalTitle').textContent = 'แก้ไขเทมเพลต';
-    document.getElementById('inputSurgery').value = t.template_name;
-    selectedColor = t.color;
-    currentSteps = JSON.parse(t.steps_json);
-    updateColorUI();
-    renderStepsList();
-    document.getElementById('modal').style.display = 'block';
-  }
-
-  function closeModal() { document.getElementById('modal').style.display = 'none'; }
-
-  function toggleTemplateColorPicker(e) {
-    e.stopPropagation();
-    const picker = document.getElementById('templateColorPicker');
-    const isVisible = picker.style.display === 'grid';
-    picker.style.display = isVisible ? 'none' : 'grid';
-    if (!isVisible) {
-      picker.innerHTML = THEME_COLORS.map(c => `
-        <div class="color-dot" style="background:${c}" onclick="selectThemeColor('${c}')"></div>
-      `).join('');
-    }
-  }
-
-  function selectThemeColor(c) {
-    selectedColor = c;
-    updateColorUI();
-    document.getElementById('templateColorPicker').style.display = 'none';
-  }
-
-  function updateColorUI() {
-    document.getElementById('colorIndicator').style.background = selectedColor;
-  }
-
-  function addNewStep() {
-    currentSteps.push({ text: '', note: '', color: '#F8FAFC' });
-    renderStepsList();
-  }
-
-  function renderStepsList() {
-    const container = document.getElementById('stepsContainer');
-    container.innerHTML = currentSteps.map((s, i) => `
-      <div class="step-box">
-        <div class="step-header">
-          <span style="font-weight: 800; color: #94A3B8;">${i+1}</span>
-          <input type="text" value="${s.text}" oninput="currentSteps[${i}].text=this.value" placeholder="ชื่อขั้นตอน..." style="flex:1; border:none; background:transparent; font-weight:600; outline:none;">
-          <button onclick="removeStep(${i})" style="border:none; background:none; color:#FDA4AF; cursor:pointer;"><i data-lucide="trash-2" size="16"></i></button>
-        </div>
-        <textarea oninput="currentSteps[${i}].note=this.value" placeholder="รายละเอียด/หมายเหตุ..." style="width:100%; border:none; padding:10px; font-size:13px; outline:none; display:block; box-sizing:border-box; resize:none;">${s.note}</textarea>
-      </div>
-    `).join('');
-    lucide.createIcons();
-  }
-
-  function removeStep(i) { currentSteps.splice(i, 1); renderStepsList(); }
-
-  async function saveTemplate() {
-    const name = document.getElementById('inputSurgery').value;
-    if (!name) return alert('กรุณาระบุชื่อหัตถการ');
-
-    const data = {
-      template_name: name,
-      color: selectedColor,
-      steps_json: JSON.stringify(currentSteps),
-      updated_at: new Date().toISOString()
-    };
-
-    if (editId) {
-      await setDoc(doc(window._db, 'users', window._uid, 'templates', editId), data);
+    if (window.allTemplates.length === 0) {
+        list.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 60px; color: #94A3B8; border: 2px dashed var(--border); border-radius: 20px;">
+            <i data-lucide="folder-open" size="48" style="margin-bottom: 10px; opacity: 0.5;"></i>
+            <p>ยังไม่มีข้อมูลหัตถการของคุณ</p>
+        </div>`;
     } else {
-      await addDoc(collection(window._db, 'users', window._uid, 'templates'), data);
+        list.innerHTML = window.allTemplates.map(t => {
+            const steps = JSON.parse(t.steps_json || '[]');
+            return `
+              <div class="card" onclick="openEditModal('${t.__backendId}')">
+                <div style="height: 6px; background: ${t.color}"></div>
+                <div style="padding: 20px;">
+                  <h3 style="margin: 0 0 10px 0; font-size: 16px; font-weight: 700; line-height: 1.4;">${t.template_name}</h3>
+                  <span style="font-size: 12px; color: #64748B; background: #F1F5F9; padding: 4px 8px; border-radius: 6px;">${steps.length} ขั้นตอน</span>
+                </div>
+              </div>
+            `;
+        }).join('');
     }
-    closeModal();
+    lucide.createIcons();
+  };
+
+  window.openCreateModal = () => {
+    window.editId = null; 
+    window.currentSteps = []; 
+    window.selectedColor = THEME_COLORS[0];
+    initModal();
+  };
+
+  window.openEditModal = (id) => {
+    const t = window.allTemplates.find(x => x.__backendId === id);
+    window.editId = id; 
+    window.selectedColor = t.color; 
+    window.currentSteps = JSON.parse(t.steps_json);
+    initModal(t.template_name);
+  };
+
+  function initModal(name = '') {
+    document.getElementById('inputSurgery').value = name;
+    renderMainColorPicker();
+    renderStepsList();
+    renderFooter();
+    document.getElementById('modal').style.display = 'block';
   }
 
-  // ปิด Popup เมื่อคลิกที่อื่น
-  window.onclick = () => {
-    document.getElementById('templateColorPicker').style.display = 'none';
+  function renderMainColorPicker() {
+    const container = document.getElementById('mainColorPicker');
+    container.innerHTML = THEME_COLORS.map(c => `
+      <div onclick="window.selectedColor='${c}'; renderMainColorPicker()" 
+           style="background:${c}; width:24px; height:24px; border-radius:50%; cursor:pointer; border: ${window.selectedColor === c ? '3px solid #1E293B' : '3px solid white'}; box-shadow: 0 0 0 1px #E2E8F0;"></div>
+    `).join('');
+  }
+
+  window.addNewStep = () => {
+    window.currentSteps.push({ text: '', note: '', color: '#CBD5E1' }); // Default step color
+    renderStepsList();
   };
+
+  window.renderStepsList = () => {
+    const container = document.getElementById('stepsContainer');
+    container.innerHTML = window.currentSteps.map((s, i) => `
+      <div class="step-box" style="border-left-color: ${s.color}">
+        <div class="step-header">
+          <span style="font-weight: 800; color: #94A3B8; font-size: 12px;">${i+1}</span>
+          <input type="text" value="${s.text}" oninput="window.currentSteps[${i}].text=this.value" placeholder="ชื่อขั้นตอน..." style="flex:1; border:none; background:none; font-weight:600; outline:none; font-size:14px;">
+          <div style="display: flex; gap: 5px;">
+            ${['#2563EB', '#EA580C', '#16A34A', '#DC2626', '#64748B'].map(c => `
+              <div onclick="updateStepColor(${i}, '${c}')" class="color-dot-sm ${s.color === c ? 'active' : ''}" style="background:${c}"></div>
+            `).join('')}
+          </div>
+          <button onclick="removeStep(${i})" style="border:none; background:none; color:#FCA5A5; cursor:pointer; padding: 4px;"><i data-lucide="trash-2" size="14"></i></button>
+        </div>
+        <textarea oninput="window.currentSteps[${i}].note=this.value" placeholder="รายละเอียด/เครื่องมือที่ใช้..." style="width:100%; border:none; padding:12px; font-size:13px; outline:none; resize:none; color: #64748B; font-family: inherit;">${s.note}</textarea>
+      </div>
+    `).join('');
+    lucide.createIcons();
+  };
+
+  window.updateStepColor = (i, color) => {
+    window.currentSteps[i].color = color;
+    renderStepsList();
+  };
+
+  window.removeStep = (i) => { 
+    window.currentSteps.splice(i, 1); 
+    renderStepsList(); 
+  };
+
+  function renderFooter() {
+    const footer = document.getElementById('modalFooter');
+    footer.innerHTML = `
+      <button onclick="${window.editId ? `deleteTemplate('${window.editId}')` : 'closeModal()'}" 
+              style="padding:12px; border:1px solid #E2E8F0; background:#F8FAFC; border-radius:12px; cursor:pointer; font-weight:600; color:${window.editId ? '#EF4444' : '#64748B'}">
+        ${window.editId ? 'ลบทิ้ง' : 'ยกเลิก'}
+      </button>
+      <button id="saveBtn" onclick="saveTemplate()" class="btn-primary" style="justify-content:center;">
+        บันทึกข้อมูล
+      </button>
+    `;
+  }
+
+  window.closeModal = () => document.getElementById('modal').style.display = 'none';
 
   lucide.createIcons();
 </script>
