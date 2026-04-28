@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="th" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ListsOR</title>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- ===== FIREBASE SDK ===== -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, query, orderBy }
+      from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAZ1RDykpCCRdvu8DDmxYFWILlKUPuxDtg",
+      authDomain: "listsor-6049b.firebaseapp.com",
+      projectId: "listsor-6049b",
+      storageBucket: "listsor-6049b.firebasestorage.app",
+      messagingSenderId: "76589470807",
+      appId: "1:76589470807:web:3937ba3148c3eede0dbf12"
+    };
+
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
+    const auth = getAuth(app);
+
+    window._db = db;
+    window._fs = { collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, query, orderBy };
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        window._uid = user.uid;
+        const dot  = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
+        dot.className  = 'w-2 h-2 rounded-full bg-emerald-400';
+        text.textContent = 'เชื่อมต่อแล้ว';
+        startListener();
+      } else {
+        signInAnonymously(auth).catch(err => {
+          document.getElementById('statusDot').className  = 'w-2 h-2 rounded-full bg-red-400';
+          document.getElementById('statusText').textContent = 'เชื่อมต่อไม่ได้';
+          showToast('Auth error: ' + err.message, 'error');
+        });
+      }
+    });
+
+    function startListener() {
+      const { collection, query, orderBy, onSnapshot } = window._fs;
+      const q = query(collection(db, 'users', window._uid, 'templates'), orderBy('created_at','asc'));
+      onSnapshot(q, snap => {
+        allTemplates = snap.docs.map(d => ({ __backendId: d.id, ...d.data() }));
+        renderTemplates();
+      }, err => showToast('Firestore: ' + err.message, 'error'));
+    }
+
+    window.dataSdk = {
+      async create(data) {
+        try {
+          const { collection, addDoc } = window._fs;
+          const d = { ...data }; delete d.__backendId;
+          d.created_at = d.created_at || new Date().toISOString();
+          d.updated_at = new Date().toISOString();
+          await addDoc(collection(db,'users',window._uid,'templates'), d);
+          return { isOk: true };
+        } catch(e) { return { isOk:false, error:e.message }; }
+      },
+      async update(data) {
+        try {
+          const { doc, setDoc } = window._fs;
+          const d = { ...data }; delete d.__backendId;
+          d.updated_at = new Date().toISOString();
+          await setDoc(doc(db,'users',window._uid,'templates',data.__backendId), d);
+          return { isOk: true };
+        } catch(e) { return { isOk:false, error:e.message }; }
+      },
+      async delete(record) {
+        try {
+          const { doc, deleteDoc } = window._fs;
+          await deleteDoc(doc(db,'users',window._uid,'templates',record.__backendId));
+          return { isOk: true };
+        } catch(e) { return { isOk:false, error:e.message }; }
+      }
+    };
+  </script>
+
+  <style>
+    /* ── DESIGN TOKENS ── */
+    :root {
+      --bg:        #F8F9FB;   /* page background: off-white */
+      --surface:   #FFFFFF;   /* card/modal bg */
+      --border:    #D1D5DB;   /* subtle gray border */
+      --border-md: #9CA3AF;   /* medium border */
+      --text:      #111827;   /* near-black */
+      --muted:     #6B7280;   /* gray text */
+      --accent:    #2563EB;   /* blue-600 */
+      --accent-lt: #EFF6FF;   /* blue-50  */
+      --accent-dk: #1D4ED8;   /* blue-700 */
+      --danger:    #DC2626;
+      --danger-lt: #FEF2F2;
+      --success:   #059669;
+      --warn:      #D97706;
+    }
+
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--text); }
+
+    /* ── BORDERS ── */
+    .b1  { border:1px solid var(--border); }
+    .b2  { border:2px solid var(--border-md); }
+    .ba  { border:2px solid var(--accent); }
+
+    /* ── BUTTONS ── */
+    .btn-primary {
+      background:var(--accent); color:#fff; border:none;
+      border-radius:8px; padding:8px 18px; font-weight:600; font-size:14px;
+      cursor:pointer; transition:background .15s, transform .1s;
+      display:inline-flex; align-items:center; gap:6px;
+    }
+    .btn-primary:hover  { background:var(--accent-dk); }
+    .btn-primary:active { transform:scale(.97); }
+
+    .btn-ghost {
+      background:transparent; color:var(--text); border:1.5px solid var(--border);
+      border-radius:8px; padding:8px 18px; font-weight:600; font-size:14px;
+      cursor:pointer; transition:background .15s;
+      display:inline-flex; align-items:center; gap:6px;
+    }
+    .btn-ghost:hover  { background:#F3F4F6; }
+
+    .btn-danger {
+      background:var(--danger); color:#fff; border:none;
+      border-radius:8px; padding:8px 18px; font-weight:600; font-size:14px;
+      cursor:pointer; transition:background .15s;
+    }
+    .btn-danger:hover { background:#B91C1C; }
+
+    .btn-icon {
+      background:transparent; border:none; border-radius:6px; padding:6px;
+      cursor:pointer; color:var(--muted); transition:background .12s, color .12s;
+    }
+    .btn-icon:hover { background:#F3F4F6; color:var(--text); }
+    .btn-icon.danger:hover { background:var(--danger-lt); color:var(--danger); }
+    .btn-icon.blue:hover   { background:var(--accent-lt); color:var(--accent); }
+
+    /* ── CARDS ── */
+    .card {
+      background:var(--surface); border:1.5px solid var(--border);
+      border-radius:12px; overflow:hidden;
+      transition:box-shadow .15s, transform .15s;
+    }
+    .card:hover { box-shadow:0 4px 16px rgba(0,0,0,.09); transform:translateY(-2px); }
+
+    /* ── INPUTS ── */
+    .inp {
+      width:100%; border:1.5px solid var(--border); border-radius:8px;
+      padding:9px 12px; font-size:14px; background:var(--surface);
+      color:var(--text); font-family:inherit; transition:border-color .15s;
+    }
+    .inp:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+
+    /* ── MODAL ── */
+    .overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); backdrop-filter:blur(3px); z-index:40; }
+    .modal-box {
+      position:relative; z-index:50; background:var(--surface);
+      border:1.5px solid var(--border); border-radius:16px; width:100%;
+      max-width:520px; box-shadow:0 20px 60px rgba(0,0,0,.15);
+    }
+    .modal-header {
+      padding:18px 20px; border-bottom:1.5px solid var(--border);
+      background:var(--accent); border-radius:14px 14px 0 0;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .modal-header .btn-icon { color:#fff; }
+    .modal-header .btn-icon:hover { background:rgba(255,255,255,.15); color:#fff; }
+
+    /* ── BADGE ── */
+    .badge {
+      display:inline-flex; align-items:center; gap:4px;
+      padding:2px 10px; border-radius:20px; font-size:12px; font-weight:600;
+      background:var(--accent-lt); color:var(--accent);
+      border:1px solid #BFDBFE;
+    }
+
+    /* ── STATUS PILL ── */
+    .status-pill {
+      display:inline-flex; align-items:center; gap:5px;
+      padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600;
+      border:1px solid var(--border); background:var(--surface);
+      color:var(--muted);
+    }
+
+    /* ── STEP ITEM ── */
+    .step-item { border:1.5px solid var(--border); border-radius:8px; background:var(--surface); overflow:hidden; }
+    .drag-over  { border-color:var(--accent) !important; background:var(--accent-lt) !important; }
+    .dragging   { opacity:.45; transform:scale(.97); }
+
+    /* ── COLOR DOT ── */
+    .color-dot {
+      width:26px; height:26px; border-radius:50%; border:2px solid var(--border);
+      cursor:pointer; transition:transform .1s;
+    }
+    .color-dot:hover  { transform:scale(1.18); }
+    .color-dot.active { outline:3px solid var(--accent); outline-offset:2px; }
+
+    /* ── TOAST ── */
+    .toast {
+      position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+      z-index:9999; padding:11px 22px; border-radius:10px;
+      font-size:13px; font-weight:600; font-family:'IBM Plex Mono',monospace;
+      border:1.5px solid var(--border);
+      animation:toastIn .3s ease-out, toastOut .3s 2.2s ease-in forwards;
+      white-space:nowrap;
+    }
+    .toast.success { background:#ECFDF5; color:#065F46; border-color:#6EE7B7; }
+    .toast.error   { background:#FEF2F2; color:#991B1B; border-color:#FCA5A5; }
+    .toast.info    { background:var(--accent-lt); color:var(--accent-dk); border-color:#BFDBFE; }
+    @keyframes toastIn  { from{opacity:0;transform:translateX(-50%) translateY(16px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    @keyframes toastOut { to{opacity:0;transform:translateX(-50%) translateY(16px)} }
+
+    /* ── SKELETON ── */
+    .skeleton {
+      background:linear-gradient(90deg,#F3F4F6 25%,#E5E7EB 50%,#F3F4F6 75%);
+      background-size:200% 100%; animation:shimmer 1.4s infinite;
+    }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    /* ── SLIDE IN ── */
+    @keyframes slideIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+    .animate-in { animation:slideIn .25s ease-out forwards; }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width:6px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+    /* ── DIVIDER ── */
+    .divider { border:none; border-top:1px solid var(--border); margin:0; }
+  </style>
+</head>
+<body style="font-family:'Inter',sans-serif;">
+
+<!-- ══════════════════════════════════════
+     MAIN APP
+══════════════════════════════════════ -->
+<div id="app" style="min-height:100vh; display:flex; flex-direction:column;">
+
+  <!-- NAV / HEADER -->
+  <header style="background:var(--surface); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:30;">
+    <div style="max-width:1200px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+
+      <!-- Logo -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:36px;height:36px;background:var(--accent);border-radius:9px;display:flex;align-items:center;justify-content:center;">
+          <i data-lucide="clipboard-list" style="width:20px;height:20px;color:#fff;"></i>
+        </div>
+        <div>
+          <div style="font-size:17px;font-weight:700;letter-spacing:-.3px;">ListsOR</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:500;margin-top:-1px;">Surgical Template Manager</div>
+        </div>
+        <!-- Firebase status -->
+        <div class="status-pill" style="margin-left:4px;">
+          <div id="statusDot" style="width:7px;height:7px;border-radius:50%;background:#F59E0B;"></div>
+          <span id="statusText">กำลังเชื่อมต่อ...</span>
+        </div>
+      </div>
+
+      <!-- Search + Create -->
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="position:relative;">
+          <i data-lucide="search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted);"></i>
+          <input id="searchInput" type="text" placeholder="ค้นหา template..."
+            class="inp" style="padding-left:32px; width:220px;"
+            oninput="handleSearch(this.value)">
+        </div>
+        <button onclick="openCreateModal()" class="btn-primary">
+          <i data-lucide="plus" style="width:16px;height:16px;"></i>
+          <span>สร้าง Template</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main style="flex:1; max-width:1200px; margin:0 auto; width:100%; padding:28px 24px;">
+
+    <!-- Loading skeletons -->
+    <div id="loadingState" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;">
+      <div class="card skeleton" style="height:130px;"></div>
+      <div class="card skeleton" style="height:130px;"></div>
+      <div class="card skeleton" style="height:130px;"></div>
+    </div>
+
+    <!-- Template grid -->
+    <div id="templateList" style="display:none; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;"></div>
+
+    <!-- Empty state -->
+    <div id="emptyState" style="display:none; flex-direction:column; align-items:center; justify-content:center; padding:80px 0; color:var(--muted);">
+      <div style="width:64px;height:64px;background:var(--accent-lt);border-radius:16px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
+        <i data-lucide="clipboard-list" style="width:32px;height:32px;color:var(--accent);"></i>
+      </div>
+      <p style="font-weight:700;font-size:16px;color:var(--text);margin:0 0 6px;">ยังไม่มี Template</p>
+      <p style="font-size:13px;margin:0 0 20px;">กดปุ่ม "สร้าง Template" เพื่อเริ่มต้น</p>
+      <button onclick="openCreateModal()" class="btn-primary">
+        <i data-lucide="plus" style="width:15px;height:15px;"></i> สร้าง Template แรก
+      </button>
+    </div>
+  </main>
+</div>
+
+<!-- ══════════════════════════════════════
+     CREATE / EDIT MODAL
+══════════════════════════════════════ -->
+<div id="modal" style="display:none; position:fixed; inset:0; z-index:45; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;">
+  <div class="overlay" onclick="closeModal()" style="position:fixed; inset:0; z-index:44;"></div>
+  <div class="modal-box animate-in" style="z-index:46;">
+
+    <div class="modal-header">
+      <span id="modalTitle" style="font-weight:700; font-size:16px; color:#fff;">สร้าง Template ใหม่</span>
+      <button onclick="closeModal()" class="btn-icon"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+    </div>
+
+    <div style="padding:20px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; max-height:62vh;">
+
+      <div>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">ชื่อการผ่าตัด <span style="color:var(--danger)">*</span></label>
+        <input id="inputSurgery" type="text" placeholder="เช่น Phacoemulsification" class="inp">
+      </div>
+
+      <div>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">หมายเหตุ</label>
+        <textarea id="inputNotes" placeholder="ข้อมูลเพิ่มเติม..." class="inp" style="height:72px;resize:none;"></textarea>
+      </div>
+
+      <div>
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px;">สีของ Template</label>
+        <div id="colorPicker" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <label style="font-size:13px;font-weight:600;">ขั้นตอนการผ่าตัด</label>
+          <button onclick="addStep()" class="btn-primary" style="padding:5px 12px; font-size:12px;">
+            <i data-lucide="plus" style="width:13px;height:13px;"></i> เพิ่มขั้นตอน
+          </button>
+        </div>
+        <div id="stepsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+    </div>
+
+    <hr class="divider">
+    <div style="padding:16px 20px; display:flex; gap:10px;">
+      <button onclick="closeModal()" class="btn-ghost" style="flex:1; justify-content:center;">ยกเลิก</button>
+      <button id="saveBtn" onclick="saveTemplate()" class="btn-primary" style="flex:1; justify-content:center;">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     DELETE MODAL
+══════════════════════════════════════ -->
+<div id="deleteModal" style="display:none; position:fixed; inset:0; z-index:45; align-items:center; justify-content:center; padding:16px;">
+  <div class="overlay" onclick="closeDeleteModal()" style="position:fixed; inset:0; z-index:44;"></div>
+  <div class="modal-box animate-in" style="z-index:46; max-width:380px; padding:28px 24px; text-align:center;">
+    <div style="width:52px;height:52px;background:var(--danger-lt);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+      <i data-lucide="trash-2" style="width:24px;height:24px;color:var(--danger);"></i>
+    </div>
+    <p style="font-weight:700;font-size:16px;margin:0 0 6px;">ลบ Template นี้?</p>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 20px;">การลบจะไม่สามารถย้อนกลับได้</p>
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeDeleteModal()" class="btn-ghost" style="flex:1;justify-content:center;">ยกเลิก</button>
+      <button id="confirmDeleteBtn" class="btn-danger" style="flex:1;">ลบเลย</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     VIEW MODAL
+══════════════════════════════════════ -->
+<div id="viewModal" style="display:none; position:fixed; inset:0; z-index:45; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;">
+  <div class="overlay" onclick="closeViewModal()" style="position:fixed; inset:0; z-index:44;"></div>
+  <div class="modal-box animate-in" style="z-index:46;">
+    <div id="viewHeader" style="padding:18px 20px; border-bottom:1.5px solid var(--border); display:flex; align-items:center; justify-content:space-between; border-radius:14px 14px 0 0; background:var(--accent);">
+      <h2 id="viewTitle" style="font-weight:700;font-size:16px;color:#fff;margin:0;"></h2>
+      <button onclick="closeViewModal()" class="btn-icon" style="color:#fff;">
+        <i data-lucide="x" style="width:18px;height:18px;"></i>
+      </button>
+    </div>
+    <div id="viewContent" style="padding:20px; overflow-y:auto; max-height:65vh;"></div>
+    <hr class="divider">
+    <div style="padding:16px 20px; display:flex; gap:10px;">
+      <button onclick="closeViewModal()" class="btn-ghost" style="flex:1;justify-content:center;">ปิด</button>
+      <button id="viewEditBtn" class="btn-primary" style="flex:1;justify-content:center;">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> แก้ไข
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════ -->
+<script>
+let allTemplates = [];
+let searchQuery  = '';
+let editingId    = null;
+let deletingRecord = null;
+let modalSteps   = [];
+let selectedColor = '#2563EB';
+let dragSrcIndex  = null;
+let _firstLoad    = true;
+
+// Blue-centric color palette matching the theme
+const COLORS = [
+  '#2563EB','#1D4ED8','#0EA5E9','#0891B2',
+  '#374151','#6B7280','#111827','#FFFFFF',
+  '#059669','#DC2626'
+];
+
+// ── TOAST ──────────────────────────────
+function showToast(msg, type = 'info') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+// ── SEARCH ─────────────────────────────
+function handleSearch(q) {
+  searchQuery = q.toLowerCase().trim();
+  renderTemplates();
+}
+
+// ── RENDER TEMPLATES ───────────────────
+function renderTemplates() {
+  const grid      = document.getElementById('templateList');
+  const empty     = document.getElementById('emptyState');
+  const loading   = document.getElementById('loadingState');
+
+  if (_firstLoad) {
+    _firstLoad = false;
+    loading.style.display = 'none';
+    grid.style.display    = 'grid';
+  }
+
+  let list = allTemplates;
+  if (searchQuery) {
+    list = list.filter(t =>
+      (t.template_name || '').toLowerCase().includes(searchQuery) ||
+      (t.notes || '').toLowerCase().includes(searchQuery)
+    );
+  }
+
+  grid.querySelectorAll('.template-card').forEach(el => el.remove());
+
+  if (list.length === 0) {
+    empty.style.display = 'flex';
+    lucide.createIcons();
+    return;
+  }
+  empty.style.display = 'none';
+
+  list.forEach(tmpl => {
+    const id = tmpl.__backendId;
+    let steps = [];
+    try { steps = JSON.parse(tmpl.steps_json || '[]'); } catch(e) {}
+    const color = tmpl.color || '#2563EB';
+
+    const card = document.createElement('div');
+    card.className = 'card template-card animate-in';
+    card.style.cursor = 'pointer';
+    card.dataset.id = id;
+
+    // Accent bar color
+    const barLight = ['#FFFFFF','#F3F4F6'];
+    const barColor = barLight.includes(color) ? '#D1D5DB' : color;
+
+    card.innerHTML = `
+      <div style="height:4px; background:${barColor};"></div>
+      <div style="padding:16px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px;">
+          <div style="flex:1; min-width:0; margin-right:8px;">
+            <h3 style="font-weight:700; font-size:15px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              ${esc(tmpl.template_name || 'Untitled')}
+            </h3>
+          </div>
+          <div style="display:flex; gap:2px; flex-shrink:0;">
+            <button onclick="event.stopPropagation();openEditModal('${id}')" class="btn-icon blue" title="แก้ไข">
+              <i data-lucide="pencil" style="width:15px;height:15px;"></i>
+            </button>
+            <button onclick="event.stopPropagation();duplicateTemplate('${id}')" class="btn-icon" title="ทำสำเนา">
+              <i data-lucide="copy" style="width:15px;height:15px;"></i>
+            </button>
+            <button onclick="event.stopPropagation();openDeleteModal('${id}')" class="btn-icon danger" title="ลบ">
+              <i data-lucide="trash-2" style="width:15px;height:15px;"></i>
+            </button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span class="badge">
+            <i data-lucide="list-checks" style="width:11px;height:11px;"></i>
+            ${steps.length} ขั้นตอน
+          </span>
+          ${tmpl.notes ? `<span style="font-size:11px;color:var(--muted);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${esc(tmpl.notes)}</span>` : ''}
+        </div>
+      </div>`;
+    card.onclick = () => viewTemplate(id);
+    grid.appendChild(card);
+  });
+
+  lucide.createIcons();
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── OPEN CREATE ────────────────────────
+function openCreateModal() {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'สร้าง Template ใหม่';
+  document.getElementById('inputSurgery').value = '';
+  document.getElementById('inputNotes').value   = '';
+  modalSteps    = [];
+  selectedColor = '#2563EB';
+  showModal('modal');
+  requestAnimationFrame(() => {
+    renderColorPicker();
+    renderSteps();
+    lucide.createIcons();
+    document.getElementById('inputSurgery').focus();
+  });
+}
+
+// ── OPEN EDIT ──────────────────────────
+function openEditModal(id) {
+  const tmpl = allTemplates.find(t => t.__backendId === id);
+  if (!tmpl) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'แก้ไข Template';
+  document.getElementById('inputSurgery').value = tmpl.template_name || '';
+  document.getElementById('inputNotes').value   = tmpl.notes || '';
+  try { modalSteps = JSON.parse(tmpl.steps_json || '[]'); } catch(e) { modalSteps = []; }
+  selectedColor = tmpl.color || '#2563EB';
+  showModal('modal');
+  requestAnimationFrame(() => {
+    renderColorPicker();
+    renderSteps();
+    lucide.createIcons();
+  });
+}
+
+function showModal(id) {
+  document.getElementById(id).style.display = 'flex';
+}
+function hideModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
+
+function closeModal()       { hideModal('modal'); editingId = null; }
+function closeDeleteModal() { hideModal('deleteModal'); deletingRecord = null; }
+function closeViewModal()   { hideModal('viewModal'); }
+
+// ── SAVE ───────────────────────────────
+async function saveTemplate() {
+  const surgery = document.getElementById('inputSurgery').value.trim();
+  if (!surgery) { showToast('กรุณาใส่ชื่อการผ่าตัด', 'error'); return; }
+  if (!window._uid) { showToast('ยังไม่ได้เชื่อมต่อ Firebase', 'error'); return; }
+
+  syncStepsFromDOM();
+
+  const data = {
+    type: 'template',
+    template_name: surgery,
+    surgery_name:  surgery,
+    notes:         document.getElementById('inputNotes').value.trim(),
+    steps_json:    JSON.stringify(modalSteps),
+    color:         selectedColor,
+    updated_at:    new Date().toISOString()
+  };
+
+  const btn = document.getElementById('saveBtn');
+  btn.textContent = 'กำลังบันทึก...';
+  btn.disabled = true;
+
+  try {
+    let result;
+    if (editingId) {
+      const existing = allTemplates.find(t => t.__backendId === editingId);
+      if (existing) result = await window.dataSdk.update({ ...existing, ...data });
+      else throw new Error('ไม่พบ template');
+    } else {
+      data.created_at = new Date().toISOString();
+      result = await window.dataSdk.create(data);
+    }
+
+    if (result.isOk) {
+      showToast(editingId ? '✓ อัปเดตสำเร็จ' : '✓ สร้างสำเร็จ', 'success');
+      closeModal();
+    } else {
+      showToast('Error: ' + (result.error || 'เกิดข้อผิดพลาด'), 'error');
+    }
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  } finally {
+    btn.textContent = 'บันทึก';
+    btn.disabled = false;
+  }
+}
+
+// ── DUPLICATE ──────────────────────────
+async function duplicateTemplate(id) {
+  if (!window._uid) { showToast('ยังไม่ได้เชื่อมต่อ', 'error'); return; }
+  const tmpl = allTemplates.find(t => t.__backendId === id);
+  if (!tmpl) return;
+  const dup = {
+    type: 'template',
+    template_name: (tmpl.template_name || '') + ' (สำเนา)',
+    surgery_name: tmpl.surgery_name || '',
+    steps_json: tmpl.steps_json || '[]',
+    notes: tmpl.notes || '',
+    color: tmpl.color || '#2563EB',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  const r = await window.dataSdk.create(dup);
+  if (r.isOk) showToast('✓ ทำสำเนาสำเร็จ', 'success');
+  else showToast('Error: ' + (r.error || ''), 'error');
+}
+
+// ── DELETE ─────────────────────────────
+function openDeleteModal(id) {
+  deletingRecord = allTemplates.find(t => t.__backendId === id);
+  if (!deletingRecord) return;
+  showModal('deleteModal');
+  lucide.createIcons();
+
+  const btn    = document.getElementById('confirmDeleteBtn');
+  const newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+  newBtn.onclick = async () => {
+    newBtn.textContent = 'กำลังลบ...';
+    newBtn.disabled = true;
+    const r = await window.dataSdk.delete(deletingRecord);
+    newBtn.textContent = 'ลบเลย';
+    newBtn.disabled = false;
+    if (r.isOk) { showToast('ลบสำเร็จ', 'info'); closeDeleteModal(); }
+    else showToast('Error: ' + (r.error || ''), 'error');
+  };
+}
+
+// ── VIEW ───────────────────────────────
+function viewTemplate(id) {
+  const tmpl = allTemplates.find(t => t.__backendId === id);
+  if (!tmpl) return;
+  let steps = [];
+  try { steps = JSON.parse(tmpl.steps_json || '[]'); } catch(e) {}
+  const color = tmpl.color || '#2563EB';
+
+  // Header accent
+  const header = document.getElementById('viewHeader');
+  const lightColors = ['#FFFFFF','#F3F4F6'];
+  const isDark = !lightColors.includes(color);
+  header.style.background  = color;
+  header.style.borderColor = color;
+  document.getElementById('viewTitle').style.color = isDark ? '#fff' : 'var(--text)';
+  header.querySelector('button').style.color = isDark ? '#fff' : 'var(--text)';
+  document.getElementById('viewTitle').textContent = tmpl.template_name || 'Untitled';
+  document.getElementById('viewEditBtn').onclick = () => { closeViewModal(); openEditModal(id); };
+
+  let html = '<div style="display:flex;flex-direction:column;gap:14px;">';
+
+  if (tmpl.notes) {
+    html += `<div style="background:var(--accent-lt);border:1px solid #BFDBFE;border-radius:8px;padding:12px;">
+      <p style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;margin:0 0 4px;">หมายเหตุ</p>
+      <p style="font-size:13px;margin:0;">${esc(tmpl.notes)}</p>
+    </div>`;
+  }
+
+  if (steps.length) {
+    html += `<div>
+      <p style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px;">ขั้นตอน (${steps.length})</p>
+      <ol style="display:flex;flex-direction:column;gap:8px;list-style:none;padding:0;margin:0;">`;
+    steps.forEach((s, i) => {
+      const sc = s.color && s.color !== '#f3f4f6' ? s.color : 'var(--accent-lt)';
+      html += `<li style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+        <span style="width:28px;height:28px;border-radius:50%;background:${sc};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;color:${sc==='var(--accent-lt)'?'var(--accent)':'#fff'};">${i+1}</span>
+        <div style="flex:1;min-width:0;">
+          <p style="font-size:13px;font-weight:500;margin:0;">${esc(s.text || 'ขั้นตอนที่ '+(i+1))}</p>
+          ${s.note ? `<p style="font-size:12px;margin:6px 0 0;padding:6px 10px;background:#FFFBEB;border-left:3px solid #FCD34D;border-radius:0 4px 4px 0;font-style:italic;color:var(--muted);">${esc(s.note)}</p>` : ''}
+        </div>
+      </li>`;
+    });
+    html += '</ol></div>';
+  } else {
+    html += `<div style="text-align:center;padding:40px 0;color:var(--muted);">
+      <i data-lucide="list-x" style="width:36px;height:36px;display:block;margin:0 auto 8px;"></i>
+      <p style="font-size:13px;margin:0;">ไม่มีขั้นตอนในเทมเพลตนี้</p>
+    </div>`;
+  }
+
+  html += '</div>';
+  document.getElementById('viewContent').innerHTML = html;
+  showModal('viewModal');
+  lucide.createIcons();
+}
+
+// ── COLOR PICKER ───────────────────────
+function renderColorPicker() {
+  const c = document.getElementById('colorPicker');
+  c.innerHTML = '';
+  COLORS.forEach(col => {
+    const dot = document.createElement('div');
+    dot.className = 'color-dot' + (col === selectedColor ? ' active' : '');
+    dot.style.background = col;
+    dot.style.boxShadow  = col === '#FFFFFF' ? 'inset 0 0 0 1px #D1D5DB' : 'none';
+    dot.title = col;
+    dot.onclick = () => { selectedColor = col; renderColorPicker(); };
+    c.appendChild(dot);
+  });
+}
+
+// ── STEPS ──────────────────────────────
+function addStep() {
+  syncStepsFromDOM();
+  modalSteps.push({ text:'', color:'#EFF6FF', note:'', id: Date.now()+Math.random() });
+  renderSteps();
+  requestAnimationFrame(() => {
+    const inputs = document.querySelectorAll('[data-step-text]');
+    if (inputs.length) inputs[inputs.length-1].focus();
+  });
+}
+
+function renderSteps() {
+  const container = document.getElementById('stepsList');
+  container.innerHTML = '';
+
+  if (!modalSteps.length) {
+    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px;border:1.5px dashed var(--border);border-radius:8px;">
+      ยังไม่มีขั้นตอน — กดปุ่ม "เพิ่มขั้นตอน"
+    </div>`;
+    return;
+  }
+
+  modalSteps.forEach((step, i) => {
+    const div = document.createElement('div');
+    div.className = 'step-item';
+    div.draggable = true;
+    div.dataset.index = i;
+    div.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--border);">
+        <div data-drag-handle="true" style="cursor:grab;color:var(--muted);flex-shrink:0;line-height:0;touch-action:none;user-select:none;">
+          <i data-lucide="grip-vertical" style="width:15px;height:15px;"></i>
+        </div>
+        <span style="font-size:11px;font-weight:700;color:var(--muted);width:18px;text-align:center;flex-shrink:0;">${i+1}</span>
+        <input type="text" value="${esc(step.text)}" placeholder="ชื่อขั้นตอน"
+          class="inp" style="flex:1;padding:5px 8px;font-size:13px;border-color:transparent;background:transparent;" data-step-text="${i}">
+        <input type="color" value="${step.color||'#EFF6FF'}"
+          style="width:24px;height:24px;border:1.5px solid var(--border);border-radius:4px;cursor:pointer;padding:2px;flex-shrink:0;background:none;"
+          data-step-color="${i}" title="เปลี่ยนสี">
+        <button onclick="removeStep(${i})" class="btn-icon danger" style="flex-shrink:0;padding:4px;">
+          <i data-lucide="x" style="width:14px;height:14px;"></i>
+        </button>
+      </div>
+      <textarea placeholder="หมายเหตุ (ถ้ามี)..." data-step-note="${i}"
+        class="inp" style="border:none;border-radius:0;resize:none;height:52px;font-size:12px;padding:8px 10px;background:var(--surface);"></textarea>`;
+
+    div.querySelector(`[data-step-note="${i}"]`).value = step.note || '';
+
+    // Drag events
+    div.addEventListener('dragstart', e => { dragSrcIndex = i; setTimeout(()=>div.classList.add('dragging'),0); e.dataTransfer.effectAllowed='move'; });
+    div.addEventListener('dragend',   () => div.classList.remove('dragging'));
+    div.addEventListener('dragover',  e => { e.preventDefault(); div.classList.add('drag-over'); });
+    div.addEventListener('dragleave', () => div.classList.remove('drag-over'));
+    div.addEventListener('drop', e => {
+      e.preventDefault(); div.classList.remove('drag-over');
+      if (dragSrcIndex !== null && dragSrcIndex !== i) {
+        syncStepsFromDOM();
+        const moved = modalSteps.splice(dragSrcIndex,1)[0];
+        modalSteps.splice(i,0,moved);
+        renderSteps();
+      }
+    });
+
+    // Touch drag
+    const handle = div.querySelector('[data-drag-handle]');
+    handle.addEventListener('touchstart', () => { dragSrcIndex = i; div.classList.add('dragging'); }, {passive:true});
+    handle.addEventListener('touchmove', e => {
+      e.preventDefault();
+      const cy = e.touches[0].clientY;
+      container.querySelectorAll('.step-item').forEach((item, idx) => {
+        const r = item.getBoundingClientRect();
+        item.classList.toggle('drag-over', cy > r.top && cy < r.bottom && idx !== dragSrcIndex);
+      });
+    }, {passive:false});
+    handle.addEventListener('touchend', e => {
+      div.classList.remove('dragging');
+      const cy = e.changedTouches[0].clientY;
+      let tgt = null;
+      container.querySelectorAll('.step-item').forEach((item, idx) => {
+        item.classList.remove('drag-over');
+        const r = item.getBoundingClientRect();
+        if (cy > r.top && cy < r.bottom) tgt = idx;
+      });
+      if (tgt !== null && tgt !== dragSrcIndex) {
+        syncStepsFromDOM();
+        const moved = modalSteps.splice(dragSrcIndex,1)[0];
+        modalSteps.splice(tgt,0,moved);
+        renderSteps();
+      }
+    });
+
+    container.appendChild(div);
+  });
+  lucide.createIcons();
+}
+
+function removeStep(i) { syncStepsFromDOM(); modalSteps.splice(i,1); renderSteps(); }
+
+function syncStepsFromDOM() {
+  const c = document.getElementById('stepsList');
+  c.querySelectorAll('[data-step-text]').forEach(inp => {
+    const i = parseInt(inp.dataset.stepText);
+    if (modalSteps[i] !== undefined) modalSteps[i].text = inp.value;
+  });
+  c.querySelectorAll('[data-step-color]').forEach(inp => {
+    const i = parseInt(inp.dataset.stepColor);
+    if (modalSteps[i] !== undefined) modalSteps[i].color = inp.value;
+  });
+  c.querySelectorAll('[data-step-note]').forEach(ta => {
+    const i = parseInt(ta.dataset.stepNote);
+    if (modalSteps[i] !== undefined) modalSteps[i].note = ta.value;
+  });
+}
+
+// ── KEYBOARD ───────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('viewModal').style.display   !== 'none') closeViewModal();
+    else if (document.getElementById('deleteModal').style.display !== 'none') closeDeleteModal();
+    else if (document.getElementById('modal').style.display  !== 'none') closeModal();
+  }
+  if ((e.ctrlKey||e.metaKey) && e.key === 'Enter') {
+    if (document.getElementById('modal').style.display !== 'none') saveTemplate();
+  }
+});
+
+lucide.createIcons();
+</script>
+</body>
+</html>
