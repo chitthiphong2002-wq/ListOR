@@ -42,22 +42,29 @@
       }
     });
 
-    // ดึงข้อมูลจาก Collection กลาง เพื่อให้ทุกคนเห็นเหมือนกัน
     function startSharedListener() {
       const q = query(collection(db, 'shared_templates'), orderBy('updated_at', 'desc'));
       onSnapshot(q, (snap) => {
         window.allTemplates = snap.docs.map(d => ({ __backendId: d.id, ...d.data() }));
         window.renderTemplates();
+      }, (error) => {
+        console.error("Firestore Error:", error);
+        if(error.code === 'permission-denied') {
+            alert("สิทธิ์การเข้าถึงถูกปฏิเสธ! กรุณาเช็ค Security Rules ใน Firebase Console");
+        }
       });
     }
 
     window.saveTemplate = async () => {
-        const name = document.getElementById('inputSurgery').value;
-        const mainNote = document.getElementById('inputMainNote').value;
+        const name = document.getElementById('inputSurgery').value.trim();
+        const mainNote = document.getElementById('inputMainNote').value.trim();
+        
         if (!name) return alert('กรุณาระบุชื่อหัตถการ');
         
         const btn = document.getElementById('saveBtn');
+        const originalText = btn.innerText;
         btn.disabled = true;
+        btn.innerText = "กำลังบันทึก...";
 
         const data = {
           template_name: name,
@@ -74,22 +81,32 @@
               await addDoc(collection(db, 'shared_templates'), data);
             }
             window.closeModal();
+        } catch (e) {
+            console.error("Save Error:", e);
+            alert("ไม่สามารถบันทึกได้: " + e.message);
         } finally {
             btn.disabled = false;
+            btn.innerText = originalText;
         }
     };
 
     window.duplicateTemplate = async (e, id) => {
         e.stopPropagation();
         const source = window.allTemplates.find(t => t.__backendId === id);
-        const newData = { ...source, template_name: source.template_name + " (สำเนา)", updated_at: serverTimestamp() };
+        const newData = { 
+            ...source, 
+            template_name: source.template_name + " (สำเนา)", 
+            updated_at: serverTimestamp() 
+        };
         delete newData.__backendId;
         await addDoc(collection(db, 'shared_templates'), newData);
     };
 
     window.deleteTemplateDirect = async (e, id) => {
         e.stopPropagation();
-        if(confirm('ลบเทมเพลตนี้? ทุกคนจะมองไม่เห็นข้อมูลนี้อีก')) await deleteDoc(doc(db, 'shared_templates', id));
+        if(confirm('ลบเทมเพลตนี้? ข้อมูลจะหายไปสำหรับทุกคน')) {
+            await deleteDoc(doc(db, 'shared_templates', id));
+        }
     };
   </script>
 
@@ -99,22 +116,19 @@
     
     .logo-text { display: flex; align-items: center; gap: 8px; font-weight: 800; color: var(--accent); }
     .btn-primary { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+    .btn-primary:disabled { background: #94A3B8; cursor: not-allowed; }
     
     .card { background: white; border-radius: 16px; border: 1px solid var(--border); transition: 0.2s; cursor: pointer; position: relative; overflow: hidden; }
     .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
     .card-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; opacity: 0; transition: 0.2s; }
     .card:hover .card-actions { opacity: 1; }
     .action-btn { background: white; border: 1px solid #E2E8F0; padding: 5px; border-radius: 6px; cursor: pointer; color: #64748B; }
-    .action-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-    .inp { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; outline: none; box-sizing: border-box; }
-    .inp:disabled { background: #fdfdfd; color: #1E293B; }
     
-    .step-box { background: white; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 10px; border-left: 8px solid #ccc; cursor: default; }
-    .step-box.sortable-ghost { opacity: 0.4; background: #e0e7ff; }
-    .step-header { padding: 8px 12px; background: #F8FAFC; display: flex; align-items: center; gap: 10px; }
-    .drag-handle { cursor: grab; color: #CBD5E1; display: flex; align-items: center; }
-    .drag-handle:active { cursor: grabbing; }
+    .inp { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; outline: none; box-sizing: border-box; }
+    
+    .step-box { background: white; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 10px; border-left: 8px solid #ccc; }
+    .step-header { padding: 8px 12px; background: #F8FAFC; display: flex; align-items: center; gap: 10px; border-radius: 14px 14px 0 0; }
+    .drag-handle { cursor: grab; color: #CBD5E1; }
 
     .color-dot { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 2px solid white; box-shadow: 0 0 0 1px #E2E8F0; }
     .color-dot.active { box-shadow: 0 0 0 2px #1E293B; }
@@ -134,7 +148,7 @@
       <div class="logo-text" style="font-size: 22px;">
         <i data-lucide="stethoscope" size="24"></i> ListsOR
       </div>
-      <button onclick="openCreateModal()" class="btn-primary"><i data-lucide="plus" size="18"></i> สร้างเคสผ่าตัด</button>
+      <button onclick="openCreateModal()" class="btn-primary"><i data-lucide="plus" size="18"></i> สร้างเคส</button>
     </div>
   </header>
 
@@ -146,36 +160,33 @@
 <!-- Modal -->
 <div id="modal" style="display: none; position: fixed; inset: 0; z-index: 100;">
   <div onclick="closeModal()" style="position: absolute; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);"></div>
-  <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; width: 95%; max-width: 500px; border-radius: 24px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);">
+  <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; width: 95%; max-width: 500px; border-radius: 24px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+    
     <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
       <h2 id="modalTitle" style="margin:0; font-size: 18px; font-weight: 700;">รายละเอียด</h2>
       <button onclick="closeModal()" style="border:none; background:#F1F5F9; border-radius:50%; width:32px; height:32px; cursor:pointer;"><i data-lucide="x" size="18"></i></button>
     </div>
     
-    <div style="padding: 20px; overflow-y: auto; flex: 1; background: #Fcfdfe;">
-      <label style="font-size: 12px; font-weight: 600; color: #94A3B8; text-transform: uppercase;">ชื่อการผ่าตัด</label>
-      <input id="inputSurgery" type="text" class="inp" placeholder="เช่น Appendectomy..." style="font-weight: 700; margin: 8px 0 16px 0; font-size: 16px;">
+    <div style="padding: 20px; overflow-y: auto; flex: 1;">
+      <label style="font-size: 12px; font-weight: 600; color: #94A3B8;">ชื่อการผ่าตัด</label>
+      <input id="inputSurgery" type="text" class="inp" style="font-weight: 700; margin: 8px 0 16px 0;">
       
-      <label style="font-size: 12px; font-weight: 600; color: #94A3B8; text-transform: uppercase;">Note รวม</label>
-      <textarea id="inputMainNote" class="inp" placeholder="ระบุสิ่งที่ต้องระวังเป็นพิเศษ..." style="height: 70px; margin: 8px 0 20px 0; resize: none; font-family: inherit;"></textarea>
+      <label style="font-size: 12px; font-weight: 600; color: #94A3B8;">NOTE รวม</label>
+      <textarea id="inputMainNote" class="inp" style="height: 60px; margin: 8px 0 20px 0; resize: none; font-family: inherit;"></textarea>
       
-      <div id="colorPickerContainer" style="margin-bottom: 20px;">
+      <div id="colorPickerContainer">
         <label style="font-size: 12px; font-weight: 600; color: #94A3B8; display: block; margin-bottom: 8px;">สีเทมเพลต</label>
-        <div id="mainColorPicker" style="display: flex; gap: 8px;"></div>
-      </div>
-
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <label style="font-size: 12px; font-weight: 600; color: #94A3B8; text-transform: uppercase;">ขั้นตอนและรายละเอียด</label>
+        <div id="mainColorPicker" style="display: flex; gap: 8px; margin-bottom: 20px;"></div>
       </div>
 
       <div id="stepsContainer"></div>
       
-      <button id="addStepBtn" onclick="addNewStep()" style="width: 100%; padding: 14px; border: 2px dashed #CBD5E1; border-radius: 16px; background: white; color: var(--accent); cursor: pointer; margin-top: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px;">
-        <i data-lucide="plus-circle" size="18"></i> เพิ่มขั้นตอน
+      <button id="addStepBtn" onclick="addNewStep()" style="width: 100%; padding: 12px; border: 2px dashed #CBD5E1; border-radius: 12px; background: white; color: var(--accent); cursor: pointer; margin-top: 10px; font-weight: 700;">
+        + เพิ่มขั้นตอน
       </button>
     </div>
 
-    <div id="modalFooter" style="padding: 15px 20px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 2fr; gap: 10px; background: white;"></div>
+    <div id="modalFooter" style="padding: 15px 20px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 2fr; gap: 10px;"></div>
   </div>
 </div>
 
@@ -189,17 +200,13 @@
       <div class="card" onclick="openViewModal('${t.__backendId}')">
         <div style="height: 6px; background: ${t.color}"></div>
         <div style="padding: 18px;">
-          <h3 style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.4;">${t.template_name}</h3>
-          <div style="display: flex; align-items: center; gap: 6px; margin-top: 10px;">
-             <span style="font-size: 11px; background: #F1F5F9; color: #64748B; padding: 2px 8px; border-radius: 6px;">
-                ${JSON.parse(t.steps_json).length} Steps
-             </span>
-          </div>
+          <h3 style="margin: 0; font-size: 16px; font-weight: 700;">${t.template_name}</h3>
+          <p style="font-size: 12px; color: #94A3B8; margin-top: 5px;">${JSON.parse(t.steps_json).length} ขั้นตอน</p>
         </div>
         <div class="card-actions">
-          <button class="action-btn" onclick="openEditModal(event, '${t.__backendId}')" title="แก้ไข"><i data-lucide="edit-3" size="14"></i></button>
-          <button class="action-btn" onclick="duplicateTemplate(event, '${t.__backendId}')" title="คัดลอก"><i data-lucide="copy" size="14"></i></button>
-          <button class="action-btn" onclick="deleteTemplateDirect(event, '${t.__backendId}')" title="ลบ"><i data-lucide="trash-2" size="14"></i></button>
+          <button class="action-btn" onclick="openEditModal(event, '${t.__backendId}')"><i data-lucide="edit-3" size="14"></i></button>
+          <button class="action-btn" onclick="duplicateTemplate(event, '${t.__backendId}')"><i data-lucide="copy" size="14"></i></button>
+          <button class="action-btn" onclick="deleteTemplateDirect(event, '${t.__backendId}')" style="color:#FCA5A5;"><i data-lucide="trash-2" size="14"></i></button>
         </div>
       </div>
     `).join('');
@@ -221,8 +228,8 @@
     document.getElementById('inputMainNote').value = t ? (t.main_note || '') : '';
     document.getElementById('inputMainNote').disabled = window.isReadOnly;
     
-    document.getElementById('modalTitle').textContent = window.isReadOnly ? 'รายละเอียดการผ่าตัด' : (id ? 'แก้ไขข้อมูล' : 'สร้างใหม่');
-    document.getElementById('addStepBtn').style.display = window.isReadOnly ? 'none' : 'flex';
+    document.getElementById('modalTitle').textContent = window.isReadOnly ? 'รายละเอียด' : (id ? 'แก้ไขข้อมูล' : 'สร้างใหม่');
+    document.getElementById('addStepBtn').style.display = window.isReadOnly ? 'none' : 'block';
     document.getElementById('colorPickerContainer').style.display = window.isReadOnly ? 'none' : 'block';
     
     renderMainColorPicker();
@@ -230,23 +237,16 @@
     renderFooter();
     document.getElementById('modal').style.display = 'block';
 
-    // จัดการระบบลากวางเฉพาะเมื่อไม่ใช่โหมดดูเฉยๆ
-    initSortable();
-  }
-
-  function initSortable() {
     const el = document.getElementById('stepsContainer');
     if (sortableInstance) sortableInstance.destroy();
-    
     sortableInstance = new Sortable(el, {
       handle: '.drag-handle',
       animation: 150,
-      ghostClass: 'sortable-ghost',
       disabled: window.isReadOnly,
       onEnd: (evt) => {
         const movedItem = window.currentSteps.splice(evt.oldIndex, 1)[0];
         window.currentSteps.splice(evt.newIndex, 0, movedItem);
-        renderStepsList(); // วาดใหม่เพื่อให้เลขลำดับ (1, 2, 3) ถูกต้อง
+        renderStepsList();
       }
     });
   }
@@ -265,22 +265,21 @@
     container.innerHTML = window.currentSteps.map((s, i) => `
       <div class="step-box" style="border-left-color: ${s.color || '#CBD5E1'}">
         <div class="step-header">
-          ${window.isReadOnly ? '' : '<div class="drag-handle"><i data-lucide="grip-vertical" size="16"></i></div>'}
-          <span style="font-weight:700; color:#94A3B8; font-size:13px; min-width:15px;">${i+1}</span>
+          ${window.isReadOnly ? '' : '<div class="drag-handle"><i data-lucide="grip-vertical" size="14"></i></div>'}
+          <span style="font-weight:700; color:#94A3B8; font-size:12px;">${i+1}</span>
           <input type="text" value="${s.text}" oninput="window.currentSteps[${i}].text=this.value" 
-                 ${window.isReadOnly ? 'disabled' : ''} placeholder="ชื่อขั้นตอน..." 
+                 ${window.isReadOnly ? 'disabled' : ''} placeholder="ขั้นตอน..." 
                  style="flex:1; border:none; background:none; font-size:14px; outline:none; font-weight:600;">
-          
           <div style="display: ${window.isReadOnly ? 'none' : 'flex'}; gap: 4px;">
             ${['#2563EB', '#16A34A', '#DC2626', '#64748B'].map(c => `
-              <div onclick="updateStepColor(${i}, '${c}')" class="color-dot" style="background:${c}; width:14px; height:14px; border: ${s.color === c ? '1px solid #1E293B' : '1px solid white'}"></div>
+              <div onclick="updateStepColor(${i}, '${c}')" class="color-dot" style="background:${c}; width:12px; height:12px;"></div>
             `).join('')}
-            <button onclick="removeStep(${i})" style="border:none; background:none; color:#FCA5A5; cursor:pointer; margin-left:5px;"><i data-lucide="trash-2" size="14"></i></button>
+            <button onclick="removeStep(${i})" style="border:none; background:none; color:#FCA5A5; cursor:pointer;"><i data-lucide="trash-2" size="14"></i></button>
           </div>
         </div>
         <textarea oninput="window.currentSteps[${i}].note=this.value" 
-                  ${window.isReadOnly ? 'disabled' : ''} placeholder="รายละเอียดอุปกรณ์หรือเทคนิค..." 
-                  style="width:100%; border:none; padding:10px 12px; font-size:13px; outline:none; resize:none; font-family: inherit; color: #475569; background:transparent;">${s.note}</textarea>
+                  ${window.isReadOnly ? 'disabled' : ''} placeholder="รายละเอียด..." 
+                  style="width:100%; border:none; padding:10px; font-size:13px; outline:none; resize:none; font-family: inherit;">${s.note}</textarea>
       </div>
     `).join('');
     lucide.createIcons();
@@ -289,30 +288,19 @@
   window.addNewStep = () => { 
     window.currentSteps.push({ text: '', note: '', color: '#CBD5E1' }); 
     renderStepsList(); 
-    // เลื่อนลงไปล่างสุดของรายการ
-    const container = document.getElementById('stepsContainer');
-    container.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
   };
-
-  window.updateStepColor = (i, color) => {
-    window.currentSteps[i].color = color;
-    renderStepsList();
-  };
-
+  window.updateStepColor = (i, color) => { window.currentSteps[i].color = color; renderStepsList(); };
   window.removeStep = (i) => { window.currentSteps.splice(i, 1); renderStepsList(); };
 
   function renderFooter() {
     const footer = document.getElementById('modalFooter');
     footer.innerHTML = window.isReadOnly 
-      ? `<button onclick="closeModal()" style="grid-column: span 2; padding:12px; background:#F1F5F9; border:none; border-radius:12px; cursor:pointer; font-weight:600; color:#475569;">ปิดหน้าต่าง</button>`
+      ? `<button onclick="closeModal()" style="grid-column: span 2; padding:12px; background:#F1F5F9; border:none; border-radius:12px; cursor:pointer; font-weight:600;">ปิด</button>`
       : `<button onclick="closeModal()" style="padding:12px; background:white; border:1px solid #E2E8F0; border-radius:12px; cursor:pointer; font-weight:600;">ยกเลิก</button>
          <button id="saveBtn" onclick="saveTemplate()" class="btn-primary" style="justify-content:center;">บันทึกการแก้ไข</button>`;
   }
 
-  window.closeModal = () => {
-    document.getElementById('modal').style.display = 'none';
-  };
-  
+  window.closeModal = () => document.getElementById('modal').style.display = 'none';
   lucide.createIcons();
 </script>
 </body>
